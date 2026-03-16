@@ -1,0 +1,254 @@
+# 11 接口契约样例集（开工前必备）
+
+## 目标
+- 提供前后端联调统一样例，减少字段理解偏差。
+
+## 统一响应样例
+```json
+{
+  "code": "SUCCESS",
+  "msg": "ok",
+  "data": {}
+}
+```
+
+## 样例 1：创建 Agent
+`POST /agents`
+
+请求：
+```json
+{
+  "name": "procurement-intake",
+  "code": "proc_intake",
+  "group_id": "grp_01",
+  "model_profile_id": "mpf_openai_gpt5_prod",
+  "tools_config": {"profile": "custom", "allow": ["browser", "shell", "file"]},
+  "prompts": {"version": 1, "agents_md": "..."}
+}
+```
+
+响应：
+```json
+{"code":"SUCCESS","msg":"ok","data":{"agent_id":"agt_01"}}
+```
+
+## 样例 1.1：创建模型档案（API Key 加密入库）
+`POST /platform/model-profiles`
+
+请求：
+```json
+{
+  "name": "openai-gpt5-prod",
+  "provider": "openai",
+  "model": "gpt-5",
+  "api_base": "https://api.openai.com/v1",
+  "params": {"temperature": 0.2, "max_tokens": 4096},
+  "api_key": "sk-xxxx"
+}
+```
+
+响应：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{
+    "profile_id":"mpf_openai_gpt5_prod",
+    "secret_masked":"sk-***9f3a",
+    "secret_fingerprint":"fp_4c2d"
+  }
+}
+```
+
+## 样例 2：会话列表（扩展字段）
+`GET /sessions?group_id=grp_01&source_type=auto`
+
+响应片段：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{
+    "sessions":[
+      {
+        "session_id":"ses_01",
+        "title":"采购巡检",
+        "status":"running",
+        "agent_id":"agt_01",
+        "agent_name":"procurement-intake",
+        "group_id":"grp_01",
+        "group_name":"采购",
+        "source_type":"auto"
+      }
+    ]
+  }
+}
+```
+
+## 样例 3：发布配置版本
+`POST /agents/{agent_id}/config-versions/{version_id}/publish`
+
+响应：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{"published_version":"cfg_v12","effective_scope":"new_sessions_only"}
+}
+```
+
+## 样例 4：全局摘要 SSE（左侧常驻）
+`GET /sessions/stream`
+
+```json
+{
+  "event":"session_upsert",
+  "data":{
+    "event_id":"evt_sum_1001",
+    "timestamp":"2026-03-16T10:00:00Z",
+    "session_id":"ses_01",
+    "title":"采购巡检",
+    "status":"running",
+    "agent_id":"agt_01",
+    "agent_name":"procurement-intake",
+    "group_id":"grp_01",
+    "group_name":"采购",
+    "source_type":"auto",
+    "latest_message_at":1770000000,
+    "unread_message_count":1
+  }
+}
+```
+
+## 样例 4.1：会话详情 SSE（中间时间线）
+`GET /sessions/{session_id}/stream`
+
+```json
+{
+  "event":"timeline",
+  "data":{
+    "session_id":"ses_01",
+    "step_id":"step_02",
+    "action":"step_started",
+    "agent_id":"agt_01",
+    "group_id":"grp_01",
+    "source_type":"auto",
+    "timestamp":"2026-03-14T11:00:00Z"
+  }
+}
+```
+
+```json
+{
+  "event":"timeline",
+  "data":{
+    "session_id":"ses_01",
+    "action":"sandbox_recreated",
+    "old_sandbox_id":"sbx_old",
+    "new_sandbox_id":"sbx_new",
+    "reason":"health_check_failed"
+  }
+}
+```
+
+## 样例 5：错误响应
+```json
+{
+  "code":"TENANT_QUOTA_EXCEEDED",
+  "msg":"tenant concurrency limit reached",
+  "data":{"retryable": true}
+}
+```
+
+## 样例 6：上下文利用率（调试接口）
+`GET /sessions/{session_id}/context/utilization`
+
+响应：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{
+    "session_id":"ses_01",
+    "utilization":0.82,
+    "compression_stage":2,
+    "token_breakdown":{
+      "anchor_tokens":620,
+      "planner_tokens":540,
+      "execution_tokens":1310,
+      "recent_turn_tokens":880
+    }
+  }
+}
+```
+
+## 样例 7：浏览器剪裁预览（调试接口）
+`POST /sessions/{session_id}/context/clip-browser-preview`
+
+请求：
+```json
+{
+  "step_id":"step_03",
+  "source_type":"playwright",
+  "raw_content":"<html>...</html>",
+  "clip_policy":{"max_chars":6000,"max_tokens":1800,"include_interactives":true}
+}
+```
+
+响应：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{
+    "clip_text":"页面摘要 ...",
+    "clip_ratio":0.27,
+    "artifact_ref":"art_browser_123"
+  }
+}
+```
+
+## 样例 8：调度触发记录（Celery 映射）
+`GET /scheduler/triggers?agent_id=agt_01&status=running`
+
+响应：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{
+    "triggers":[
+      {
+        "trigger_id":"trg_1001",
+        "status":"running",
+        "session_id":"ses_01",
+        "session_status":"running",
+        "celery_task_id":"cly_9f3e",
+        "queue":"agent.default",
+        "started_at":"2026-03-15T09:10:00Z"
+      }
+    ]
+  }
+}
+```
+
+## 样例 9：手动对账修复结果
+`POST /scheduler/reconcile/run`
+
+响应：
+```json
+{
+  "code":"SUCCESS",
+  "msg":"ok",
+  "data":{
+    "run_id":"rec_20260315_01",
+    "scanned_count":128,
+    "repaired_count":3,
+    "released_leases":2,
+    "details":[
+      {"trigger_id":"trg_102","from_status":"queued","to_status":"pending","reason_code":"CELERY_TASK_LOST"},
+      {"trigger_id":"trg_108","from_status":"running","to_status":"finished","reason_code":"WORKER_STALE"}
+    ]
+  }
+}
+```

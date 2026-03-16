@@ -120,7 +120,7 @@ class PlanActFlow(BaseFlow):
                         self.plan = event.plan
                         logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
                         yield TitleEvent(title=event.plan.title)
-                        yield MessageEvent(role="assistant", message=event.plan.message)
+                        yield MessageEvent(role="assistant", message=event.plan.message or "")
                     yield event
                 logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
                 self.status = AgentStatus.EXECUTING
@@ -149,6 +149,7 @@ class PlanActFlow(BaseFlow):
                 logger.info(f"Agent {self._agent_id} started updating plan")
                 async for event in self.planner.update_plan(self.plan, step):
                     yield event
+                await self.planner.compact_memory()
                 logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
                 self.status = AgentStatus.EXECUTING
             elif self.status == AgentStatus.SUMMARIZING:

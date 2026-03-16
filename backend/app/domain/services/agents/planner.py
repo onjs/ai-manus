@@ -58,9 +58,13 @@ class PlannerAgent(BaseAgent):
         async for event in self.execute(message):
             if isinstance(event, MessageEvent):
                 logger.info(event.message)
-                parsed_response = await self._parse_json(event.message)
-                plan = Plan.model_validate(parsed_response)
-                yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
+                try:
+                    parsed_response = await self._parse_json(event.message)
+                    plan = Plan.model_validate(parsed_response)
+                    yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
+                except Exception as e:
+                    logger.warning(f"Planner create_plan JSON parse failed: {e}")
+                    yield ErrorEvent(error=f"Invalid plan JSON output: {e}")
             else:
                 yield event
 
@@ -69,26 +73,30 @@ class PlannerAgent(BaseAgent):
         async for event in self.execute(message):
             if isinstance(event, MessageEvent):
                 logger.debug(f"Planner agent update plan: {event.message}")
-                parsed_response = await self._parse_json(event.message)
-                updated_plan = Plan.model_validate(parsed_response)
-                new_steps = [Step.model_validate(step) for step in updated_plan.steps]
-                
-                # Find the index of the first pending step
-                first_pending_index = None
-                for i, step in enumerate(plan.steps):
-                    if not step.is_done():
-                        first_pending_index = i
-                        break
-                
-                # If there are pending steps, replace all pending steps
-                if first_pending_index is not None:
-                    # Keep completed steps
-                    updated_steps = plan.steps[:first_pending_index]
-                    # Add new steps
-                    updated_steps.extend(new_steps)
-                    # Update steps in plan
-                    plan.steps = updated_steps
-                
-                yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
+                try:
+                    parsed_response = await self._parse_json(event.message)
+                    updated_plan = Plan.model_validate(parsed_response)
+                    new_steps = [Step.model_validate(step) for step in updated_plan.steps]
+
+                    # Find the index of the first pending step
+                    first_pending_index = None
+                    for i, step in enumerate(plan.steps):
+                        if not step.is_done():
+                            first_pending_index = i
+                            break
+
+                    # If there are pending steps, replace all pending steps
+                    if first_pending_index is not None:
+                        # Keep completed steps
+                        updated_steps = plan.steps[:first_pending_index]
+                        # Add new steps
+                        updated_steps.extend(new_steps)
+                        # Update steps in plan
+                        plan.steps = updated_steps
+
+                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
+                except Exception as e:
+                    logger.warning(f"Planner update_plan JSON parse failed: {e}")
+                    yield ErrorEvent(error=f"Invalid updated plan JSON output: {e}")
             else:
                 yield event

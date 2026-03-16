@@ -20,6 +20,7 @@ from app.domain.models.file import FileInfo
 from app.core.config import get_settings
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.models.session import SessionStatus
+from app.infrastructure.external.openfang.client import OpenFangClient
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ class AgentService:
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
+        agent_runtime: str = "manus",
+        openfang_client: Optional[OpenFangClient] = None,
+        configured_openfang_agent_id: Optional[str] = None,
     ):
         logger.info("Initializing AgentService")
         self._agent_repository = agent_repository
@@ -47,6 +51,9 @@ class AgentService:
             file_storage,
             mcp_repository,
             search_engine,
+            agent_runtime,
+            openfang_client,
+            configured_openfang_agent_id,
         )
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls

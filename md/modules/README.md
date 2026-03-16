@@ -1,0 +1,47 @@
+# 模块设计文档目录
+
+## 当前决策
+- 记忆/上下文层：先复用 `Mongo + Redis`。
+- 调度执行层：采用 `Celery Beat + Broker + Worker`，业务层保留 `pending`。
+- 调度闭环：`Reconciler 对账恢复 + 幂等键 + 并发令牌`。
+- 记忆结构：复用 ai-manus `planner + execution` 双层记忆。
+- 浏览器上下文：默认剪裁文本入 LLM，截图/大块 DOM 只做回放与审计引用。
+- 暂不引入 Mem0 作为主存储；后续可作为辅助经验层评估。
+
+## 模块清单
+- [01-agent-management.md](/Users/zuos/code/github/ai-manus/md/modules/01-agent-management.md)
+- [02-context-memory.md](/Users/zuos/code/github/ai-manus/md/modules/02-context-memory.md)
+- [03-tools-sandbox.md](/Users/zuos/code/github/ai-manus/md/modules/03-tools-sandbox.md)
+- [04-scheduler-queue.md](/Users/zuos/code/github/ai-manus/md/modules/04-scheduler-queue.md)
+- [05-observability-alerting.md](/Users/zuos/code/github/ai-manus/md/modules/05-observability-alerting.md)
+- [06-platform-management.md](/Users/zuos/code/github/ai-manus/md/modules/06-platform-management.md)
+- [07-config-release-rollback.md](/Users/zuos/code/github/ai-manus/md/modules/07-config-release-rollback.md)
+- [08-skills-tool-runtime.md](/Users/zuos/code/github/ai-manus/md/modules/08-skills-tool-runtime.md)
+- [15-deployment-topology.md](/Users/zuos/code/github/ai-manus/md/modules/15-deployment-topology.md)
+- [16-realtime-sse-retrofit-checklist.md](/Users/zuos/code/github/ai-manus/md/modules/16-realtime-sse-retrofit-checklist.md)
+- [17-browser-engine.md](/Users/zuos/code/github/ai-manus/md/modules/17-browser-engine.md)
+
+## 单独稿目录
+- [api-schema/README.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/README.md)
+- [dev-tasks/README.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/README.md)
+
+## 方案补充
+- [agent-loop-plan-exec-solution-zh.md](/Users/zuos/code/github/ai-manus/md/agent-loop-plan-exec-solution-zh.md)
+- [agent-loop-plan-exec-implementation-tasks-zh.md](/Users/zuos/code/github/ai-manus/md/agent-loop-plan-exec-implementation-tasks-zh.md)
+- [m1-data-event-design-zh.md](/Users/zuos/code/github/ai-manus/md/m1-data-event-design-zh.md)
+- [m2-plan-step-execution-design-zh.md](/Users/zuos/code/github/ai-manus/md/m2-plan-step-execution-design-zh.md)
+- [m3-protection-failure-governance-design-zh.md](/Users/zuos/code/github/ai-manus/md/m3-protection-failure-governance-design-zh.md)
+- [09-error-code-dictionary.md](/Users/zuos/code/github/ai-manus/md/modules/09-error-code-dictionary.md)
+- [10-db-migration-backfill-plan.md](/Users/zuos/code/github/ai-manus/md/modules/10-db-migration-backfill-plan.md)
+- [11-api-contract-examples.md](/Users/zuos/code/github/ai-manus/md/modules/11-api-contract-examples.md)
+- [12-integration-regression-matrix.md](/Users/zuos/code/github/ai-manus/md/modules/12-integration-regression-matrix.md)
+- [13-release-rollback-runbook.md](/Users/zuos/code/github/ai-manus/md/modules/13-release-rollback-runbook.md)
+- [14-execution-items-plan.md](/Users/zuos/code/github/ai-manus/md/modules/14-execution-items-plan.md)
+
+## 状态
+- `01`、`02`、`03`、`04`：已冻结（以主文档为准）。
+- `05`：已冻结。
+- `06`：已冻结。
+- `07`：已冻结。
+- `08`：已冻结并已转开发任务清单。
+- `17`：待评审。

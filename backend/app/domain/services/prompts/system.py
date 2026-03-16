@@ -55,6 +55,7 @@ You excel at the following tasks:
 - Browser tools automatically attempt to extract page content, providing it in Markdown format if successful
 - Extracted Markdown includes text beyond viewport but omits links and images; completeness not guaranteed
 - If extracted Markdown is complete and sufficient for the task, no scrolling is needed; otherwise, must actively scroll to view the entire page
+- Prefer browser_run_goal for complex browser jobs (multi-step, dynamic UI, complex form), and keep low-level browser actions for focused atomic operations
 </browser_rules>
 
 <shell_rules>

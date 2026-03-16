@@ -2,6 +2,7 @@ from typing import Optional
 from app.domain.external.browser import Browser
 from app.domain.services.tools.base import BaseToolkit
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.browser_engine import BrowserEngine
 from langchain.tools import tool
 
 class BrowserToolkit(BaseToolkit):
@@ -17,6 +18,7 @@ class BrowserToolkit(BaseToolkit):
         """
         super().__init__()
         self.browser = browser
+        self.browser_engine = BrowserEngine(browser)
     
     @tool(parse_docstring=True)
     async def browser_view(self) -> ToolResult:
@@ -57,6 +59,22 @@ class BrowserToolkit(BaseToolkit):
             coordinate_y: (Optional) Y coordinate of click position
         """
         return await self.browser.click(index, coordinate_x, coordinate_y)
+
+    @tool(parse_docstring=True)
+    async def browser_hover_observe(
+        self,
+        index: Optional[int] = None,
+        coordinate_x: Optional[float] = None,
+        coordinate_y: Optional[float] = None
+    ) -> ToolResult:
+        """Hover on an element and re-observe page state. Use before clicking dynamic dropdown/menu items.
+
+        Args:
+            index: (Optional) Index number of the element to hover
+            coordinate_x: (Optional) X coordinate to hover
+            coordinate_y: (Optional) Y coordinate to hover
+        """
+        return await self.browser.hover(index, coordinate_x, coordinate_y)
     
     @tool(parse_docstring=True)
     async def browser_input(
@@ -164,4 +182,60 @@ class BrowserToolkit(BaseToolkit):
         Args:
             max_lines: (Optional) Maximum number of log lines to return.
         """
-        return await self.browser.console_view(max_lines) 
+        return await self.browser.console_view(max_lines)
+
+    @tool(parse_docstring=True)
+    async def browser_wait_for_selector(
+        self,
+        selector: str,
+        text_contains: Optional[str] = None,
+        timeout_ms: Optional[int] = 6000
+    ) -> ToolResult:
+        """Wait for a selector to appear and optionally verify text. Use for post-action verification.
+
+        Args:
+            selector: CSS selector to wait for.
+            text_contains: (Optional) Expected text fragment inside the matched element.
+            timeout_ms: (Optional) Max wait time in milliseconds.
+        """
+        return await self.browser.wait_for_selector(selector, text_contains, timeout_ms)
+
+    @tool(parse_docstring=True)
+    async def browser_accessibility_snapshot(
+        self,
+        max_nodes: Optional[int] = 200
+    ) -> ToolResult:
+        """Get accessibility tree snapshot (role/name/state) for robust dynamic-page decisions.
+
+        Args:
+            max_nodes: (Optional) Maximum number of nodes returned.
+        """
+        return await self.browser.accessibility_snapshot(max_nodes)
+
+    @tool(parse_docstring=True)
+    async def browser_run_goal(
+        self,
+        goal: str,
+        expected_result: Optional[str] = None,
+        extra_context: Optional[str] = None,
+        max_steps: Optional[int] = 12,
+        task_timeout_seconds: Optional[int] = 300
+    ) -> ToolResult:
+        """Run a complete browser subtask with unified decision layer.
+
+        This tool is preferred for multi-step browser jobs, dynamic menus, and complex forms.
+
+        Args:
+            goal: Natural language goal to complete in the browser.
+            expected_result: (Optional) Specific success expectation for verification.
+            extra_context: (Optional) Structured hints such as form data or constraints.
+            max_steps: (Optional) Maximum decision rounds.
+            task_timeout_seconds: (Optional) Timeout for this browser subtask.
+        """
+        return await self.browser_engine.execute_goal(
+            goal=goal,
+            expected_result=expected_result,
+            extra_context=extra_context,
+            max_steps=max(1, min(max_steps or 12, 48)),
+            task_timeout_seconds=max(30, min(task_timeout_seconds or 300, 1800)),
+        )

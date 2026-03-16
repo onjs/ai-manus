@@ -9,11 +9,13 @@ from pydantic import TypeAdapter
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.openfang_task_runner import OpenFangTaskRunner
 from app.domain.external.task import Task
 from typing import Type
 from app.domain.external.file import FileStorage
 from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
+from app.infrastructure.external.openfang.client import OpenFangClient
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -32,6 +34,9 @@ class AgentDomainService:
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
+        agent_runtime: str = "manus",
+        openfang_client: Optional[OpenFangClient] = None,
+        configured_openfang_agent_id: Optional[str] = None,
     ):
         self._repository = agent_repository
         self._session_repository = session_repository
@@ -40,6 +45,9 @@ class AgentDomainService:
         self._task_cls = task_cls
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
+        self._agent_runtime = agent_runtime
+        self._openfang_client = openfang_client
+        self._configured_openfang_agent_id = configured_openfang_agent_id
         logger.info("AgentDomainService initialization completed")
             
     async def shutdown(self) -> None:
@@ -50,6 +58,22 @@ class AgentDomainService:
 
     async def _create_task(self, session: Session) -> Task:
         """Create a new agent task"""
+        if self._agent_runtime == "openfang":
+            if not self._openfang_client:
+                raise RuntimeError("OpenFang runtime selected but OPENFANG_BASE_URL is not configured")
+            task_runner = OpenFangTaskRunner(
+                session_id=session.id,
+                agent_id=session.agent_id,
+                user_id=session.user_id,
+                session_repository=self._session_repository,
+                openfang_client=self._openfang_client,
+                configured_openfang_agent_id=self._configured_openfang_agent_id,
+            )
+            task = self._task_cls.create(task_runner)
+            session.task_id = task.id
+            await self._session_repository.save(session)
+            return task
+
         sandbox = None
         sandbox_id = session.sandbox_id
         if sandbox_id:

@@ -136,7 +136,7 @@ services:
       - manus-network
 
   redis:
-    image: redis:7.0
+    image: redis:7-alpine
     restart: unless-stopped
     networks:
       - manus-network

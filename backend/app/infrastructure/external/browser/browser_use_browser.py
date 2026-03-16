@@ -20,6 +20,8 @@ class BrowserUseBrowser:
     def __init__(self, cdp_url: str):
         self.cdp_url = cdp_url
         self._session: Optional[BrowserSession] = None
+        self._max_content_chars = 12000
+        self._max_interactive_elements = 160
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -101,6 +103,8 @@ class BrowserUseBrowser:
             selector_map: dict[int, EnhancedDOMTreeNode] = await session.get_selector_map()
             formatted: List[str] = []
             for idx, node in sorted(selector_map.items()):
+                if len(formatted) >= self._max_interactive_elements:
+                    break
                 tag = node.tag_name or "element"
                 text = node.get_meaningful_text_for_llm() if hasattr(node, "get_meaningful_text_for_llm") else ""
                 if not text and node.attributes:
@@ -117,6 +121,69 @@ class BrowserUseBrowser:
         except Exception as exc:
             logger.warning("Failed to get interactive elements: %s", exc)
             return []
+
+    @staticmethod
+    def _node_text(node: EnhancedDOMTreeNode) -> str:
+        text = node.get_meaningful_text_for_llm() if hasattr(node, "get_meaningful_text_for_llm") else ""
+        if not text and node.attributes:
+            text = (
+                node.attributes.get("aria-label", "")
+                or node.attributes.get("placeholder", "")
+                or node.attributes.get("title", "")
+                or node.attributes.get("name", "")
+                or ""
+            )
+        return str(text).strip()
+
+    async def _click_by_text_fallback(self, text: str) -> bool:
+        """Fallback click for dynamic overlays where backend node ids become stale."""
+        if not text:
+            return False
+        page = await self._get_current_page()
+        escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+
+        return bool(
+            await page.evaluate(
+                f"""() => {{
+                    const target = '{escaped}'.trim().toLowerCase();
+                    if (!target) return false;
+
+                    const isVisible = (el) => {{
+                        if (!el) return false;
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) return false;
+                        const style = window.getComputedStyle(el);
+                        if (!style) return false;
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                        return true;
+                    }};
+
+                    const candidates = document.querySelectorAll(
+                      '[role=\"menuitem\"],button,a,li,div,span,[role=\"button\"]'
+                    );
+
+                    const norm = (s) => (s || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+
+                    for (const el of candidates) {{
+                        if (!isVisible(el)) continue;
+                        const txt = norm(el.innerText || el.textContent || el.getAttribute('aria-label') || '');
+                        if (!txt) continue;
+                        if (txt === target || txt.includes(target) || target.includes(txt)) {{
+                            el.dispatchEvent(new MouseEvent('mousedown', {{ bubbles: true, cancelable: true }}));
+                            el.dispatchEvent(new MouseEvent('mouseup', {{ bubbles: true, cancelable: true }}));
+                            el.click();
+                            return true;
+                        }}
+                    }}
+                    return false;
+                }}"""
+            )
+        )
+
+    def _clip_content(self, content: str) -> str:
+        if len(content) <= self._max_content_chars:
+            return content
+        return content[: self._max_content_chars - 32] + "\n...(truncated)"
 
     async def _dispatch_mouse_event(
         self,
@@ -154,7 +221,7 @@ class BrowserUseBrowser:
 
             content = ""
             if state.dom_state is not None:
-                content = state.dom_state.llm_representation()
+                content = self._clip_content(state.dom_state.llm_representation())
 
             return ToolResult(
                 success=True,
@@ -171,6 +238,7 @@ class BrowserUseBrowser:
         try:
             session = await self._ensure_session()
             await session.navigate_to(url)
+            await asyncio.sleep(0.5)
             interactive_elements = await self._get_interactive_elements()
             return ToolResult(
                 success=True,
@@ -201,6 +269,51 @@ class BrowserUseBrowser:
                 )
             elif index is not None:
                 session = await self._ensure_session()
+                last_error: Optional[str] = None
+                for attempt in range(2):
+                    node = await session.get_dom_element_by_index(index)
+                    if node is None:
+                        last_error = f"Cannot find interactive element with index {index}"
+                        await asyncio.sleep(0.2)
+                        continue
+
+                    page = await self._get_current_page()
+                    try:
+                        element = await page.get_element(node.backend_node_id)
+                        try:
+                            await element.click()
+                        except Exception:
+                            await element.click(force=True)
+                        last_error = None
+                        break
+                    except Exception as exc:
+                        # Dynamic menu items frequently remount; fallback by text.
+                        node_text = self._node_text(node)
+                        if await self._click_by_text_fallback(node_text):
+                            last_error = None
+                            break
+                        last_error = str(exc)
+                        await asyncio.sleep(0.2)
+
+                if last_error:
+                    return ToolResult(success=False, message=f"Failed to click element: {last_error}")
+            await asyncio.sleep(0.5)
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to click element: {exc}")
+
+    async def hover(
+        self,
+        index: Optional[int] = None,
+        coordinate_x: Optional[float] = None,
+        coordinate_y: Optional[float] = None,
+    ) -> ToolResult:
+        """Hover an element by DOM index or coordinates and return refreshed observability."""
+        try:
+            if coordinate_x is not None and coordinate_y is not None:
+                await self._dispatch_mouse_event("mouseMoved", coordinate_x, coordinate_y)
+            elif index is not None:
+                session = await self._ensure_session()
                 node = await session.get_dom_element_by_index(index)
                 if node is None:
                     return ToolResult(
@@ -209,10 +322,17 @@ class BrowserUseBrowser:
                     )
                 page = await self._get_current_page()
                 element = await page.get_element(node.backend_node_id)
-                await element.click()
-            return ToolResult(success=True)
+                await element.hover()
+            else:
+                return ToolResult(success=False, message="Either index or coordinate must be provided")
+
+            await asyncio.sleep(0.4)
+            return ToolResult(
+                success=True,
+                data={"interactive_elements": await self._get_interactive_elements()},
+            )
         except Exception as exc:
-            return ToolResult(success=False, message=f"Failed to click element: {exc}")
+            return ToolResult(success=False, message=f"Failed to hover element: {exc}")
 
     async def input(
         self,
@@ -253,6 +373,7 @@ class BrowserUseBrowser:
             if press_enter:
                 await page.press("Enter")
 
+            await asyncio.sleep(0.5)
             return ToolResult(success=True)
         except Exception as exc:
             return ToolResult(success=False, message=f"Failed to input text: {exc}")
@@ -356,3 +477,84 @@ class BrowserUseBrowser:
             return ToolResult(success=True, data={"logs": logs})
         except Exception as exc:
             return ToolResult(success=False, message=f"Failed to view console: {exc}")
+
+    async def wait_for_selector(
+        self,
+        selector: str,
+        text_contains: Optional[str] = None,
+        timeout_ms: Optional[int] = 6000,
+    ) -> ToolResult:
+        """Wait for selector and optionally verify text in matched element."""
+        try:
+            page = await self._get_current_page()
+            timeout = timeout_ms or 6000
+            await page.wait_for_selector(selector, timeout=timeout, state="visible")
+
+            if text_contains:
+                ok = await page.evaluate(
+                    """(sel, expected) => {
+                        const el = document.querySelector(sel);
+                        if (!el) return false;
+                        const txt = (el.innerText || el.textContent || '').toLowerCase();
+                        return txt.includes((expected || '').toLowerCase());
+                    }""",
+                    selector,
+                    text_contains,
+                )
+                if not ok:
+                    return ToolResult(
+                        success=False,
+                        message=f"Selector found but text not matched: {text_contains}",
+                    )
+
+            return ToolResult(
+                success=True,
+                data={
+                    "selector": selector,
+                    "text_contains": text_contains,
+                    "interactive_elements": await self._get_interactive_elements(),
+                },
+            )
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed waiting for selector: {exc}")
+
+    async def accessibility_snapshot(
+        self,
+        max_nodes: Optional[int] = 200,
+    ) -> ToolResult:
+        """Return a lightweight accessibility-oriented snapshot via DOM/ARIA."""
+        try:
+            page = await self._get_current_page()
+            limit = max(20, min(max_nodes or 200, 1000))
+            tree = await page.evaluate(
+                """(maxNodes) => {
+                    const nodes = [];
+                    const all = document.querySelectorAll('*');
+                    for (const el of all) {
+                        if (nodes.length >= maxNodes) break;
+                        const role = el.getAttribute('role');
+                        const ariaLabel = el.getAttribute('aria-label');
+                        const hasPopup = el.getAttribute('aria-haspopup');
+                        const expanded = el.getAttribute('aria-expanded');
+                        const tag = (el.tagName || '').toLowerCase();
+                        const text = (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+                        if (!role && !ariaLabel && expanded === null && hasPopup === null) continue;
+                        nodes.push({
+                            role: role || tag,
+                            name: ariaLabel || text?.slice(0, 80) || '',
+                            expanded: expanded,
+                            haspopup: hasPopup,
+                            disabled: el.getAttribute('aria-disabled'),
+                        });
+                    }
+                    return {
+                        url: location.href || '',
+                        title: document.title || '',
+                        nodes
+                    };
+                }""",
+                limit,
+            )
+            return ToolResult(success=True, data=tree)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed accessibility snapshot: {exc}")

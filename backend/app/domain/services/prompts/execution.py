@@ -13,6 +13,12 @@ EXECUTION_PROMPT = """
 You are executing the task:
 {step}
 
+Goal Anchor:
+{goal_anchor}
+
+Step Ledger:
+{step_ledger}
+
 Note:
 - **It you that to do the task, not the user**
 - **You must use the language provided by user's message to execute the task**
@@ -23,6 +29,10 @@ Note:
 - If you need to ask user for input or take control of the browser, you must use message_ask_user tool to ask user for input
 - Don't tell how to do the task, determine by yourself.
 - Deliver the final result to user not the todo list, advice or plan
+- For browser tasks involving multiple actions, dynamic menus, page transitions, or form filling, call browser_run_goal first instead of manually chaining many low-level browser actions.
+- For dynamic menus/dropdowns, use browser_hover_observe before browser_click to reveal hidden items.
+- After critical clicks, use browser_wait_for_selector to verify expected UI appears before continuing.
+- Use browser_accessibility_snapshot when DOM text is ambiguous or dynamically changing.
 
 Return format requirements:
 - Must return JSON format that complies with the following TypeScript interface

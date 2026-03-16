@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, field_validator
 from typing import Dict, Any, Literal, Optional, Union, List, get_args
 from datetime import datetime
 import time
@@ -104,6 +104,16 @@ class MessageEvent(BaseEvent):
     role: Literal["user", "assistant"] = "assistant"
     message: str
     attachments: Optional[List[FileInfo]] = None
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def normalize_message(cls, value: Any) -> str:
+        """Coerce nullable/non-string message payloads into safe text."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return str(value)
 
 class DoneEvent(BaseEvent):
     """Done event"""

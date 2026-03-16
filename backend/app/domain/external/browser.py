@@ -24,6 +24,15 @@ class Browser(Protocol):
     ) -> ToolResult:
         """Click element"""
         ...
+
+    async def hover(
+        self,
+        index: Optional[int] = None,
+        coordinate_x: Optional[float] = None,
+        coordinate_y: Optional[float] = None
+    ) -> ToolResult:
+        """Hover element (or coordinate) and observe dynamic changes"""
+        ...
     
     async def input(
         self,
@@ -83,4 +92,20 @@ class Browser(Protocol):
     
     async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:
         """View console output"""
+        ...
+
+    async def wait_for_selector(
+        self,
+        selector: str,
+        text_contains: Optional[str] = None,
+        timeout_ms: Optional[int] = 6000
+    ) -> ToolResult:
+        """Wait for selector to appear and optionally verify text"""
+        ...
+
+    async def accessibility_snapshot(
+        self,
+        max_nodes: Optional[int] = 200
+    ) -> ToolResult:
+        """Get accessibility tree snapshot for robust decision-making"""
         ...

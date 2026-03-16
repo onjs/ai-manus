@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import uuid
+import json
 from abc import ABC
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from app.domain.models.message import Message
@@ -16,6 +17,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from langchain.chat_models import init_chat_model
 from langchain_classic.output_parsers.retry import RetryWithErrorOutputParser
 from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.utils.json import parse_json_markdown, parse_partial_json
 from langchain_core.prompts import PromptTemplate
 from app.core.config import get_settings
 from langchain.messages import AIMessage, HumanMessage, ToolCall, ToolMessage, SystemMessage
@@ -68,8 +70,80 @@ class BaseAgent(ABC):
         self.toolkits = tools
         self.memory = None
 
+    @staticmethod
+    def _extract_first_json_object(text: str) -> Optional[str]:
+        """Extract first balanced JSON object from mixed text."""
+        if not text:
+            return None
+        start = text.find("{")
+        if start < 0:
+            return None
+
+        depth = 0
+        in_str = False
+        escape = False
+
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == "\"":
+                    in_str = False
+                continue
+
+            if ch == "\"":
+                in_str = True
+                continue
+            if ch == "{":
+                depth += 1
+                continue
+            if ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : idx + 1]
+        return None
+
+    @staticmethod
+    def _local_parse_json(text: str) -> Optional[dict]:
+        """Best-effort local JSON parsing without extra LLM call."""
+        candidates: List[str] = [text]
+        extracted = BaseAgent._extract_first_json_object(text)
+        if extracted and extracted not in candidates:
+            candidates.append(extracted)
+
+        for raw in candidates:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+            try:
+                parsed = parse_json_markdown(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+            try:
+                parsed = parse_partial_json(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        return None
+
     async def _parse_json(self, text: str) -> dict:
-        """Parse JSON from LLM output using RetryWithErrorOutputParser."""
+        """Parse JSON from LLM output with local-first fallback."""
+        local = self._local_parse_json(text)
+        if local is not None:
+            return local
+
         prompt_value = self._JSON_PARSE_PROMPT.format_prompt(input=text)
         return await self._json_output_parser.aparse_with_prompt(text, prompt_value)
     
@@ -146,7 +220,7 @@ class BaseAgent(ABC):
         else:
             yield ErrorEvent(error="Maximum iteration count reached, failed to complete the task")
         
-        yield MessageEvent(message=message.content)
+        yield MessageEvent(message=message.content or "")
     
     async def _ensure_memory(self):
         if not self.memory:
@@ -229,5 +303,25 @@ class BaseAgent(ABC):
     
     async def compact_memory(self) -> None:
         await self._ensure_memory()
-        self.memory.compact()
+        if not self.memory or self.memory.empty:
+            return
+
+        total_messages = len(self.memory.messages)
+        total_chars = 0
+        for msg in self.memory.messages:
+            content = getattr(msg, "content", "")
+            if isinstance(content, list):
+                total_chars += sum(len(str(item)) for item in content)
+            else:
+                total_chars += len(str(content))
+
+        # Lightweight gate: avoid compacting short contexts every step.
+        if total_messages < 24 and total_chars < 30000:
+            return
+
+        self.memory.compact(
+            keep_recent_tool_messages=12 if total_chars < 120000 else 18,
+            browser_content_max_chars=12000 if total_chars < 180000 else 8000,
+            generic_tool_max_chars=4000 if total_chars < 180000 else 2500,
+        )
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
