@@ -56,6 +56,7 @@ You excel at the following tasks:
 - Extracted Markdown includes text beyond viewport but omits links and images; completeness not guaranteed
 - If extracted Markdown is complete and sufficient for the task, no scrolling is needed; otherwise, must actively scroll to view the entire page
 - Prefer browser_run_goal for complex browser jobs (multi-step, dynamic UI, complex form), and keep low-level browser actions for focused atomic operations
+- For complex form widgets, prefer semantic controls: browser_set_date_field, browser_set_select_field, browser_set_people_field
 </browser_rules>
 
 <shell_rules>

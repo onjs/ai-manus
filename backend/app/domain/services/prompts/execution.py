@@ -33,6 +33,7 @@ Note:
 - For dynamic menus/dropdowns, use browser_hover_observe before browser_click to reveal hidden items.
 - After critical clicks, use browser_wait_for_selector to verify expected UI appears before continuing.
 - Use browser_accessibility_snapshot when DOM text is ambiguous or dynamically changing.
+- For complex enterprise form controls, prefer semantic field tools: browser_set_date_field / browser_set_select_field / browser_set_people_field.
 
 Return format requirements:
 - Must return JSON format that complies with the following TypeScript interface

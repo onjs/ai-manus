@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     # Browser engine configuration
     browser_engine: str = "playwright"  # "playwright" or "browser_use"
+    browser_engine_vision_enabled: bool = True
+    browser_engine_vision_max_image_bytes: int = 350000
+    browser_engine_vision_round_limit: int = 6
     
     # Search engine configuration
     search_provider: str | None = "bing_web"  # "baidu", "baidu_web", "google", "bing", "bing_web", "tavily"

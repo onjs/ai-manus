@@ -95,6 +95,48 @@ class BrowserToolkit(BaseToolkit):
             press_enter: Whether to press Enter key after input
         """
         return await self.browser.input(text, press_enter, index, coordinate_x, coordinate_y)
+
+    @tool(parse_docstring=True)
+    async def browser_set_date_field(
+        self,
+        field_label: str,
+        date_expr: str = "today"
+    ) -> ToolResult:
+        """Set a date/time-like form field by semantic label. Use for enterprise date picker fields.
+
+        Args:
+            field_label: Human-readable label of the field (e.g., "计划开始时间").
+            date_expr: Date expression such as today/tomorrow/next_week/next_monday/YYYY-MM-DD.
+        """
+        return await self.browser_engine.set_date_field(field_label=field_label, date_expr=date_expr)
+
+    @tool(parse_docstring=True)
+    async def browser_set_select_field(
+        self,
+        field_label: str,
+        field_value: str
+    ) -> ToolResult:
+        """Select a dropdown/combobox field by semantic label and option text.
+
+        Args:
+            field_label: Human-readable label of the field.
+            field_value: Option text/value to choose.
+        """
+        return await self.browser_engine.set_select_field(field_label=field_label, field_value=field_value)
+
+    @tool(parse_docstring=True)
+    async def browser_set_people_field(
+        self,
+        field_label: str,
+        field_value: str
+    ) -> ToolResult:
+        """Fill a people/assignee-like field by semantic label.
+
+        Args:
+            field_label: Human-readable label of the field.
+            field_value: Person name/account identifier to input.
+        """
+        return await self.browser_engine.set_people_field(field_label=field_label, field_value=field_value)
     
     @tool(parse_docstring=True)
     async def browser_move_mouse(

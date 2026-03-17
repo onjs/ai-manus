@@ -2,6 +2,8 @@ import json
 import logging
 import re
 import time
+import base64
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 
 from langchain.chat_models import init_chat_model
@@ -22,6 +24,9 @@ class BrowserEngineAction(BaseModel):
         "click",
         "hover_click",
         "input",
+        "set_date_field",
+        "set_select_field",
+        "set_people_field",
         "press_key",
         "scroll_down",
         "scroll_up",
@@ -38,6 +43,9 @@ class BrowserEngineAction(BaseModel):
     key: Optional[str] = None
     selector: Optional[str] = None
     text_contains: Optional[str] = None
+    field_label: Optional[str] = None
+    field_value: Optional[str] = None
+    date_expr: Optional[str] = None
     success_criteria: Optional[str] = None
     confidence: float = 0.5
 
@@ -60,17 +68,21 @@ class BrowserEngine:
         "Prefer deterministic actions and always think about verification. "
         "For dynamic menus or dropdowns, choose hover_click before click. "
         "For form filling, split into small steps and verify after each critical action. "
+        "Prefer dedicated actions set_date_field/set_select_field/set_people_field for complex enterprise forms. "
         "If goal is complete, return action=finish. "
         "If user intervention is required (captcha/login/2fa), return action=ask_user."
     )
 
     _ACTION_SCHEMA = {
-        "action": "navigate|click|hover_click|input|press_key|scroll_down|scroll_up|wait_for_selector|finish|ask_user",
+        "action": "navigate|click|hover_click|input|set_date_field|set_select_field|set_people_field|press_key|scroll_down|scroll_up|wait_for_selector|finish|ask_user",
         "reason": "why this action",
         "url": "required for navigate",
         "index": "interactive element index if needed",
         "text": "target text hint (menu item / button / field label)",
         "input_text": "required for input",
+        "field_label": "required for set_date_field/set_select_field/set_people_field",
+        "field_value": "required for set_select_field/set_people_field",
+        "date_expr": "required for set_date_field, supports today/tomorrow/next_week/next_monday/YYYY-MM-DD",
         "press_enter": "bool for input",
         "key": "required for press_key",
         "selector": "verification or wait target",
@@ -82,6 +94,10 @@ class BrowserEngine:
     def __init__(self, browser: Browser):
         self._browser = browser
         settings = get_settings()
+        self._vision_enabled = bool(settings.browser_engine_vision_enabled)
+        self._vision_runtime_enabled = self._vision_enabled
+        self._vision_max_image_bytes = max(100_000, int(settings.browser_engine_vision_max_image_bytes or 350_000))
+        self._vision_round_limit = max(1, min(int(settings.browser_engine_vision_round_limit or 6), 50))
         kwargs = dict(
             model=settings.model_name,
             model_provider=settings.model_provider,
@@ -187,7 +203,319 @@ class BrowserEngine:
                 return matched.group(1).strip()
         return ""
 
-    async def _perceive(self) -> Dict[str, Any]:
+    @staticmethod
+    def _normalize_date_expr(date_expr: str) -> Optional[str]:
+        raw = (date_expr or "").strip()
+        if not raw:
+            return datetime.now().strftime("%Y-%m-%d")
+        lowered = raw.lower()
+        now = datetime.now()
+        if lowered in {"today", "今天"}:
+            return now.strftime("%Y-%m-%d")
+        if lowered in {"tomorrow", "明天"}:
+            return (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        if lowered in {"next_week", "下周"}:
+            return (now + timedelta(days=7)).strftime("%Y-%m-%d")
+        if lowered in {"next_monday", "下周一"}:
+            days = (7 - now.weekday()) % 7
+            days = 7 if days == 0 else days
+            return (now + timedelta(days=days)).strftime("%Y-%m-%d")
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", raw):
+            return raw
+        return None
+
+    @staticmethod
+    def _extract_console_result_data(result: ToolResult) -> Dict[str, Any]:
+        if not result.success:
+            return {}
+        payload = result.data if isinstance(result.data, dict) else {}
+        value = payload.get("result", payload)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return {"value": value}
+        if isinstance(value, dict):
+            return value
+        return {"value": value}
+
+    async def _invoke_planner(self, prompt: str, screenshot_data_url: Optional[str] = None):
+        text_message = HumanMessage(content=prompt)
+        if screenshot_data_url and self._vision_runtime_enabled:
+            try:
+                multimodal_message = HumanMessage(
+                    content=[
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": screenshot_data_url}},
+                    ]
+                )
+                return await self._model.ainvoke([SystemMessage(content=self._SYSTEM), multimodal_message])
+            except Exception as exc:
+                self._vision_runtime_enabled = False
+                logger.warning("BrowserEngine vision call failed, fallback to text-only planner: %s", exc)
+        return await self._model.ainvoke([SystemMessage(content=self._SYSTEM), text_message])
+
+    async def _capture_screenshot_data_url(self) -> Optional[str]:
+        if not self._vision_runtime_enabled:
+            return None
+        try:
+            screenshot = await self._browser.screenshot(full_page=False)
+            if not screenshot:
+                return None
+            if len(screenshot) > self._vision_max_image_bytes:
+                logger.info(
+                    "BrowserEngine skip vision image: screenshot too large (%s bytes > %s)",
+                    len(screenshot),
+                    self._vision_max_image_bytes,
+                )
+                return None
+            encoded = base64.b64encode(screenshot).decode("ascii")
+            return f"data:image/png;base64,{encoded}"
+        except Exception as exc:
+            logger.debug("BrowserEngine capture screenshot failed, skip vision this round: %s", exc)
+            return None
+
+    async def set_date_field(self, field_label: str, date_expr: str) -> ToolResult:
+        normalized = self._normalize_date_expr(date_expr)
+        if not normalized:
+            return ToolResult(success=False, message=f"unsupported date_expr: {date_expr}")
+
+        label_literal = json.dumps((field_label or "").strip(), ensure_ascii=False)
+        value_literal = json.dumps(normalized, ensure_ascii=False)
+        script = f"""() => {{
+            const labelText = {label_literal};
+            const targetDate = {value_literal};
+            const norm = (s) => (s || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+            const contains = (a, b) => a && b && (a.includes(b) || b.includes(a));
+            const isVisible = (el) => {{
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) return false;
+                const style = window.getComputedStyle(el);
+                if (!style) return false;
+                return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
+            }};
+            const textOf = (el) => norm(el?.innerText || el?.textContent || el?.getAttribute('aria-label') || el?.getAttribute('placeholder') || el?.getAttribute('name') || '');
+            const labelNorm = norm(labelText);
+            const controls = Array.from(document.querySelectorAll('input,textarea,[contenteditable=\"true\"],[role=\"textbox\"],[role=\"combobox\"]')).filter(isVisible);
+            let best = null;
+            let bestScore = -1;
+            const scoreControl = (el) => {{
+                let score = 0;
+                const tag = (el.tagName || '').toLowerCase();
+                const type = (el.getAttribute('type') || '').toLowerCase();
+                const own = textOf(el);
+                if (labelNorm && contains(own, labelNorm)) score += 8;
+                if (labelNorm && ['aria-label','placeholder','name','id'].some(k => contains(norm(el.getAttribute(k) || ''), labelNorm))) score += 12;
+                if (type === 'date' || type === 'datetime-local' || type === 'month' || type === 'week') score += 18;
+                if (/(date|time|calendar|日期|时间)/.test(type + ' ' + own)) score += 10;
+                const parent = el.closest('label,form,fieldset,section,div');
+                if (parent && labelNorm && contains(textOf(parent), labelNorm)) score += 10;
+                if (tag === 'input') score += 4;
+                return score;
+            }};
+            for (const control of controls) {{
+                const score = scoreControl(control);
+                if (score > bestScore) {{
+                    best = control;
+                    bestScore = score;
+                }}
+            }}
+            if (!best) {{
+                return {{ ok: false, reason: 'no_target_control' }};
+            }}
+            const tag = (best.tagName || '').toLowerCase();
+            const type = (best.getAttribute('type') || '').toLowerCase();
+            best.focus();
+            if (tag === 'input' || tag === 'textarea') {{
+                best.value = targetDate;
+            }} else if (best.getAttribute('contenteditable') === 'true') {{
+                best.innerText = targetDate;
+            }} else {{
+                best.value = targetDate;
+            }}
+            best.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            best.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            best.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+            const currentValue = (best.value || best.innerText || '').trim();
+            return {{
+                ok: !!currentValue,
+                value: currentValue,
+                matched_label: labelText,
+                tag,
+                type
+            }};
+        }}"""
+        result = await self._browser.console_exec(script)
+        data = self._extract_console_result_data(result)
+        ok = bool(result.success and data.get("ok"))
+        return ToolResult(
+            success=ok,
+            message=None if ok else (result.message or "set_date_field failed"),
+            data=data or None,
+        )
+
+    async def set_select_field(self, field_label: str, field_value: str) -> ToolResult:
+        label_literal = json.dumps((field_label or "").strip(), ensure_ascii=False)
+        value_literal = json.dumps((field_value or "").strip(), ensure_ascii=False)
+        script = f"""() => {{
+            const labelText = {label_literal};
+            const expected = {value_literal};
+            const norm = (s) => (s || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+            const contains = (a, b) => a && b && (a.includes(b) || b.includes(a));
+            const isVisible = (el) => {{
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) return false;
+                const style = window.getComputedStyle(el);
+                if (!style) return false;
+                return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
+            }};
+            const textOf = (el) => norm(el?.innerText || el?.textContent || el?.getAttribute('aria-label') || el?.getAttribute('placeholder') || el?.getAttribute('name') || '');
+            const clickEl = (el) => {{
+                el.dispatchEvent(new MouseEvent('mouseover', {{ bubbles: true }}));
+                el.dispatchEvent(new MouseEvent('mousedown', {{ bubbles: true, cancelable: true }}));
+                el.dispatchEvent(new MouseEvent('mouseup', {{ bubbles: true, cancelable: true }}));
+                el.click();
+            }};
+            const labelNorm = norm(labelText);
+            const expectedNorm = norm(expected);
+            const controls = Array.from(document.querySelectorAll('select,[role=\"combobox\"],input,button,div')).filter(isVisible);
+            let target = null;
+            let bestScore = -1;
+            for (const el of controls) {{
+                let score = 0;
+                const own = textOf(el);
+                const role = norm(el.getAttribute('role') || '');
+                const tag = (el.tagName || '').toLowerCase();
+                if (labelNorm && contains(own, labelNorm)) score += 10;
+                if (labelNorm && ['aria-label','placeholder','name','id'].some(k => contains(norm(el.getAttribute(k) || ''), labelNorm))) score += 12;
+                if (tag === 'select') score += 20;
+                if (role === 'combobox') score += 16;
+                const parent = el.closest('label,form,fieldset,section,div');
+                if (parent && labelNorm && contains(textOf(parent), labelNorm)) score += 8;
+                if (score > bestScore) {{
+                    bestScore = score;
+                    target = el;
+                }}
+            }}
+            if (!target) return {{ ok: false, reason: 'no_target_control' }};
+
+            if ((target.tagName || '').toLowerCase() === 'select') {{
+                const options = Array.from(target.options || []);
+                let chosen = null;
+                for (const opt of options) {{
+                    const txt = norm(opt.text || opt.label || '');
+                    const val = norm(opt.value || '');
+                    if (txt === expectedNorm || val === expectedNorm || txt.includes(expectedNorm) || expectedNorm.includes(txt)) {{
+                        chosen = opt;
+                        break;
+                    }}
+                }}
+                if (!chosen) return {{ ok: false, reason: 'option_not_found_native' }};
+                target.value = chosen.value;
+                target.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                target.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return {{ ok: true, selected: chosen.text || chosen.value, mode: 'native_select' }};
+            }}
+
+            clickEl(target);
+            const optionNodes = Array.from(document.querySelectorAll(
+                '[role=\"option\"],[role=\"menuitem\"],li,button,div,span'
+            )).filter(isVisible);
+            let chosenEl = null;
+            for (const el of optionNodes) {{
+                const txt = textOf(el);
+                if (!txt) continue;
+                if (txt === expectedNorm || txt.includes(expectedNorm) || expectedNorm.includes(txt)) {{
+                    chosenEl = el;
+                    break;
+                }}
+            }}
+            if (!chosenEl) {{
+                if (target.tagName && target.tagName.toLowerCase() === 'input') {{
+                    target.value = expected;
+                    target.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    target.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }}));
+                    target.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', bubbles: true }}));
+                    return {{ ok: true, selected: expected, mode: 'input_fallback' }};
+                }}
+                return {{ ok: false, reason: 'option_not_found_overlay' }};
+            }}
+            clickEl(chosenEl);
+            return {{ ok: true, selected: chosenEl.innerText || chosenEl.textContent || expected, mode: 'overlay_option' }};
+        }}"""
+        result = await self._browser.console_exec(script)
+        data = self._extract_console_result_data(result)
+        ok = bool(result.success and data.get("ok"))
+        return ToolResult(
+            success=ok,
+            message=None if ok else (result.message or "set_select_field failed"),
+            data=data or None,
+        )
+
+    async def set_people_field(self, field_label: str, field_value: str) -> ToolResult:
+        label_literal = json.dumps((field_label or "").strip(), ensure_ascii=False)
+        value_literal = json.dumps((field_value or "").strip(), ensure_ascii=False)
+        script = f"""() => {{
+            const labelText = {label_literal};
+            const expected = {value_literal};
+            const norm = (s) => (s || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+            const contains = (a, b) => a && b && (a.includes(b) || b.includes(a));
+            const isVisible = (el) => {{
+                if (!el) return false;
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) return false;
+                const style = window.getComputedStyle(el);
+                if (!style) return false;
+                return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
+            }};
+            const textOf = (el) => norm(el?.innerText || el?.textContent || el?.getAttribute('aria-label') || el?.getAttribute('placeholder') || el?.getAttribute('name') || '');
+            const labelNorm = norm(labelText);
+            const controls = Array.from(document.querySelectorAll('input,textarea,[contenteditable=\"true\"],[role=\"textbox\"],[role=\"combobox\"]')).filter(isVisible);
+            let target = null;
+            let bestScore = -1;
+            for (const el of controls) {{
+                let score = 0;
+                const own = textOf(el);
+                if (labelNorm && contains(own, labelNorm)) score += 10;
+                if (labelNorm && ['aria-label','placeholder','name','id'].some(k => contains(norm(el.getAttribute(k) || ''), labelNorm))) score += 12;
+                const parent = el.closest('label,form,fieldset,section,div');
+                if (parent && labelNorm && contains(textOf(parent), labelNorm)) score += 8;
+                if (/(user|owner|assignee|member|审批|负责人|处理人|人员)/.test(own)) score += 6;
+                if (score > bestScore) {{
+                    bestScore = score;
+                    target = el;
+                }}
+            }}
+            if (!target) return {{ ok: false, reason: 'no_target_control' }};
+            target.focus();
+            if ((target.tagName || '').toLowerCase() === 'input' || (target.tagName || '').toLowerCase() === 'textarea') {{
+                target.value = expected;
+            }} else if (target.getAttribute('contenteditable') === 'true') {{
+                target.innerText = expected;
+            }} else {{
+                target.value = expected;
+            }}
+            target.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            target.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            target.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }}));
+            target.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', bubbles: true }}));
+            const current = (target.value || target.innerText || '').trim();
+            return {{ ok: !!current, value: current }};
+        }}"""
+        result = await self._browser.console_exec(script)
+        data = self._extract_console_result_data(result)
+        ok = bool(result.success and data.get("ok"))
+        return ToolResult(
+            success=ok,
+            message=None if ok else (result.message or "set_people_field failed"),
+            data=data or None,
+        )
+
+    async def _perceive(self, include_screenshot: bool = False) -> Dict[str, Any]:
         view = await self._browser.view_page()
         a11y = await self._browser.accessibility_snapshot(max_nodes=160)
 
@@ -199,6 +527,9 @@ class BrowserEngine:
         content = self._coerce_text(view_data.get("content"))
         url = self._extract_url(content)
         a11y_data = a11y.data if isinstance(a11y.data, dict) else {}
+        screenshot_data_url = None
+        if include_screenshot:
+            screenshot_data_url = await self._capture_screenshot_data_url()
 
         return {
             "ok": bool(view.success),
@@ -206,6 +537,7 @@ class BrowserEngine:
             "content": content[:12000],
             "url": url,
             "a11y": a11y_data if a11y.success else {},
+            "screenshot_data_url": screenshot_data_url,
             "view_error": view.message or "",
         }
 
@@ -243,6 +575,9 @@ class BrowserEngine:
             + "Hard rules:\n"
             + "- Only one action.\n"
             + "- If action is click/hover_click/input, provide index whenever possible.\n"
+            + "- For date/time fields, use set_date_field with field_label + date_expr.\n"
+            + "- For dropdown fields, use set_select_field with field_label + field_value.\n"
+            + "- For people/assignee fields, use set_people_field with field_label + field_value.\n"
             + "- Prefer hover_click on dynamic menus/dropdowns.\n"
             + "- Do not repeat the same click path many times; change strategy when no progress.\n"
             + "- For menu/dropdown tasks, prefer selecting visible trigger first, then pick target option text.\n"
@@ -250,8 +585,9 @@ class BrowserEngine:
             + "- If login/captcha/2fa blocks automation, return ask_user.\n"
         )
 
-        response = await self._model.ainvoke(
-            [SystemMessage(content=self._SYSTEM), HumanMessage(content=prompt)]
+        response = await self._invoke_planner(
+            prompt=prompt,
+            screenshot_data_url=perception.get("screenshot_data_url"),
         )
         content = self._coerce_text(getattr(response, "content", ""))
         parsed = self._safe_json_parse(content)
@@ -531,6 +867,30 @@ class BrowserEngine:
                     index=action.index,
                 )
 
+            if action.action == "set_date_field":
+                if not action.field_label:
+                    return ToolResult(success=False, message="set_date_field requires field_label")
+                return await self.set_date_field(
+                    field_label=action.field_label,
+                    date_expr=action.date_expr or action.field_value or "today",
+                )
+
+            if action.action == "set_select_field":
+                if not action.field_label or not action.field_value:
+                    return ToolResult(success=False, message="set_select_field requires field_label and field_value")
+                return await self.set_select_field(
+                    field_label=action.field_label,
+                    field_value=action.field_value,
+                )
+
+            if action.action == "set_people_field":
+                if not action.field_label or not action.field_value:
+                    return ToolResult(success=False, message="set_people_field requires field_label and field_value")
+                return await self.set_people_field(
+                    field_label=action.field_label,
+                    field_value=action.field_value,
+                )
+
             if action.action == "press_key":
                 if not action.key:
                     return ToolResult(success=False, message="press_key requires key")
@@ -582,7 +942,17 @@ class BrowserEngine:
                 return False
 
         # For mutating UI actions, require observable progress when no explicit selector is supplied.
-        if action.action in {"click", "hover_click", "input", "scroll_down", "scroll_up", "navigate"}:
+        if action.action in {
+            "click",
+            "hover_click",
+            "input",
+            "set_date_field",
+            "set_select_field",
+            "set_people_field",
+            "scroll_down",
+            "scroll_up",
+            "navigate",
+        }:
             if before_perception and after_perception:
                 before_fp = self._perception_fingerprint(before_perception)
                 after_fp = self._perception_fingerprint(after_perception)
@@ -634,7 +1004,11 @@ class BrowserEngine:
                     data={"trace": [item.model_dump() for item in history], "recoveries": recoveries},
                 )
 
-            perception = await self._perceive()
+            use_vision_this_round = (
+                self._vision_runtime_enabled
+                and (round_idx <= self._vision_round_limit or no_progress_rounds >= 1)
+            )
+            perception = await self._perceive(include_screenshot=use_vision_this_round)
             if not perception.get("ok"):
                 history.append(
                     BrowserEngineTrace(
@@ -704,6 +1078,9 @@ class BrowserEngine:
                     "url": action.url,
                     "index": action.index,
                     "text": action.text,
+                    "field_label": action.field_label,
+                    "field_value": action.field_value,
+                    "date_expr": action.date_expr,
                     "selector": action.selector,
                     "text_contains": action.text_contains,
                 },
@@ -735,7 +1112,7 @@ class BrowserEngine:
                 )
 
             action_result = await self._execute_action(action, perception=perception)
-            after_perception = await self._perceive()
+            after_perception = await self._perceive(include_screenshot=False)
             verified = await self._verify_action(
                 action=action,
                 result=action_result,
@@ -790,7 +1167,7 @@ class BrowserEngine:
 
             recovered_result = await self._recover(action, action_result)
             recoveries += 1
-            recovery_after_perception = await self._perceive()
+            recovery_after_perception = await self._perceive(include_screenshot=False)
             recovered = await self._verify_action(
                 action=action,
                 result=recovered_result,
