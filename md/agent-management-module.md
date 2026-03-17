@@ -4,6 +4,15 @@
 - 核心原则：每次 Agent 自动运行生成一个 `session`，不新增 `agent_runs` 主实体，不替换现有会话体系。
 - 复用优先：复用现有前端会话页、中间操作时间线、右侧 `shell/file/noVNC`、SSE/WS 传输链路。
 - 平台化打底：引入 `tenant_id + 业务分组 + Agent级授权 + 平台/租户两级角色`。
+- 核心关系（冻结）：
+  - `tenant 1:n users`
+  - `tenant 1:n groups`
+  - `group 1:n agents`
+  - `agent 1:n task_definitions`（MVP 默认每个 Agent 至少一个任务定义）
+  - `task_definition 1:n task_schedules`
+  - `task_schedule 1:n sessions`
+  - `session 1:n events/artifacts`
+  - `user n:m agents`（通过 `agent_permissions`）
 - 会话入口双通道：
   - `auto`：调度触发自动运行并创建会话。
   - `manual`：用户新建会话或在自动会话中介入。
@@ -13,23 +22,29 @@
 - 新增 `agent_groups`
   - 字段：`group_id, tenant_id, name, code, status, created_at, updated_at`
 - 新增 `agents`
-  - 增强字段：`tenant_id, group_id, status, model_profile_id, tools_config, prompts(versioned), published_version`
+  - 增强字段：`tenant_id, group_id, status, model_profile_id, skills_config, tools_config, prompts(versioned), published_version`
+  - 说明：`prompts.agents_md` 作为 Agent 角色描述主入口。
+- 新增 `agent_task_definitions`
+  - 字段：`task_id, tenant_id, agent_id, name, goal_template, input_schema, enabled, created_at, updated_at`
+  - 说明：MVP 默认每个 Agent 至少 1 个任务定义，可扩展到 1:n。
 - 新增 `model_profiles`
   - 字段：`profile_id, tenant_id, provider, model, api_base, params, secret_ciphertext, secret_key_id, secret_masked, status`
   - 说明：`api_key` 仅密文存储，Agent 通过 `model_profile_id` 选择模型档案
-- 新增 `agent_schedules`
-  - 字段：`schedule_id, tenant_id, agent_id, cron_expr, timezone, enabled, next_run_at, last_run_at, last_status, created_at, updated_at`
+- 新增 `task_schedules`
+  - 字段：`task_schedule_id, tenant_id, task_id, agent_id, cron_expr, timezone, enabled, next_run_at, last_run_at, last_status, created_at, updated_at`
 - 新增 `agent_permissions`
   - 字段：`tenant_id, agent_id, user_id, grant_type(view|operate), created_at, updated_at`
 - 扩展 `sessions`
-  - 新增字段：`tenant_id, group_id, agent_id, source_type(manual|auto), schedule_id, trigger_id, run_meta`
+  - 新增字段：`tenant_id, group_id, agent_id, task_id, source_type(manual|auto), task_schedule_id, trigger_id, run_meta`
 - 扩展 `users`
   - 新增字段：`tenant_id, platform_role(platform_admin|tenant_admin|tenant_user)`
   - 采用单租户用户模型：一个用户仅属于一个 `tenant_id`
 
 ### 2.2 API与报文规范
-- 新增 Agent/Group/Schedule/Permission 管理接口（REST）。
+- 新增 Agent/TaskDefinition/Schedule/Permission 管理接口（REST）。
 - 新增接口全部沿用统一报文：`APIResponse{code,msg,data}`。
+- Agent 创建字段冻结：`model_profile_id + skills_config + tools_config + prompts.agents_md`。
+- 创建调度时必须指定：`task_id`（由任务定义反查所属 `agent_id`）。
 - 扩展 `/sessions` 列表返回字段：
   - `agent_id, agent_name, group_id, group_name, source_type`
   - 旧字段保持兼容。
@@ -41,7 +56,7 @@
 - 兼容保留：旧 `POST /sessions` SSE 快照流继续可用，作为过渡路径。
 
 ### 2.3 调度执行（Celery 模型）
-- `Celery Beat`：扫描 `agent_schedules` 到点触发，生成 `trigger` 并投递 broker。
+- `Celery Beat`：扫描 `task_schedules` 到点触发，生成 `trigger` 并投递 broker。
 - `Celery Broker`：承载排队与分发（Redis/RabbitMQ）。
 - `Celery Worker`：消费任务、执行 Agent Flow、持续写入 session events。
 - 业务状态保留：
@@ -66,8 +81,8 @@
   - `Celery Worker`：执行 Agent Flow，持续写入 session events，回传结果状态。
   - `Reconciler`：对账 trigger/session 与 Celery 任务状态，修正异常态。
 - 任务载荷（TriggerPayload）字段：
-  - `trigger_id, tenant_id, agent_id, group_id, schedule_id, fire_at, priority`
-  - `idempotency_key`（默认 `schedule_id + fire_at`），用于防重复触发。
+  - `trigger_id, tenant_id, group_id, agent_id, task_id, task_schedule_id, fire_at, priority`
+  - `idempotency_key`（默认 `task_schedule_id + fire_at`），用于防重复触发。
   - `loop_config_snapshot`（冻结参数快照）。
 - 状态机（调度态）：
   - `created -> pending -> queued -> running -> finished`

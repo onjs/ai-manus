@@ -15,8 +15,8 @@
 3. 评估高峰写入窗口，选择低峰执行
 
 ### Phase 1 非破坏新增
-1. 新增集合：`agent_groups, agents, model_profiles, agent_schedules, agent_permissions, agent_triggers, agent_config_versions, audit_logs`
-2. `sessions` 新增字段：`tenant_id, group_id, agent_id, source_type, schedule_id, trigger_id, run_meta`
+1. 新增集合：`agent_groups, agents, agent_task_definitions, task_schedules, model_profiles, agent_permissions, agent_triggers, agent_config_versions, audit_logs`
+2. `sessions` 新增字段：`tenant_id, group_id, agent_id, task_id, source_type, task_schedule_id, trigger_id, run_meta`
 3. `users` 新增字段：`tenant_id, platform_role`
 4. `agents` 新增字段：`model_profile_id`
 5. 创建索引（先后台）
@@ -28,6 +28,8 @@
 4. 历史 `agents.model_config` 迁移为 `model_profiles + model_profile_id`
    - 为每个唯一模型配置生成一个 `model_profile`
    - `api_key` 按加密策略入库（密文），并写回 `agents.model_profile_id`
+5. 为历史 Agent 回填默认 `agent_task_definitions`（每个 Agent 生成 1 条默认任务定义）
+6. 历史 `agent_schedules` 迁移为 `task_schedules`（补齐 `task_id`）
 
 ### Phase 3 双写与灰度
 1. 服务层开启新字段双写
@@ -42,13 +44,14 @@
 1. `sessions`: `(tenant_id, latest_message_at desc)`, `(tenant_id, group_id, latest_message_at desc)`, `(tenant_id, agent_id, latest_message_at desc)`
 2. `agents`: `(tenant_id, code)` unique
 3. `model_profiles`: `(tenant_id, name)` unique, `(tenant_id, status)`
-4. `agent_schedules`: `(tenant_id, agent_id, enabled, next_run_at)`
-5. `agent_permissions`: `(tenant_id, agent_id, user_id)` unique
-6. `agent_config_versions`: `(tenant_id, agent_id, version_no)` unique
-7. `agent_triggers`:
+4. `agent_task_definitions`: `(tenant_id, agent_id, enabled)`, `(tenant_id, agent_id, name)` unique
+5. `task_schedules`: `(tenant_id, task_id, enabled, next_run_at)`, `(tenant_id, agent_id, enabled, next_run_at)`
+6. `agent_permissions`: `(tenant_id, agent_id, user_id)` unique
+7. `agent_config_versions`: `(tenant_id, agent_id, version_no)` unique
+8. `agent_triggers`:
    - `(tenant_id, status, fire_at)`
    - `(tenant_id, agent_id, status, fire_at)`
-   - `(tenant_id, agent_id, idempotency_key)` unique
+   - `(tenant_id, agent_id, task_id, idempotency_key)` unique
 
 ## Redis 键空间
 - Celery 队列键（由 Celery 管理，按环境前缀区分）

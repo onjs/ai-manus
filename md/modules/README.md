@@ -1,6 +1,15 @@
 # 模块设计文档目录
 
 ## 当前决策
+- 核心数据关系（冻结）：
+  - `tenant 1:n users`
+  - `tenant 1:n groups`
+  - `group 1:n agents`
+  - `agent 1:n task_definitions`（MVP 默认每个 agent 至少 1 个默认任务定义）
+  - `task_definition 1:n task_schedules`
+  - `task_schedule 1:n sessions`
+  - `session 1:n events/artifacts`
+  - `user n:m agents`（通过 `agent_permissions` 授权）
 - 记忆/上下文层：先复用 `Mongo + Redis`。
 - 调度执行层：采用 `Celery Beat + Broker + Worker`，业务层保留 `pending`。
 - 调度闭环：`Reconciler 对账恢复 + 幂等键 + 并发令牌`。

@@ -2,9 +2,10 @@
 
 ## M1 数据模型
 1. tenants/users/agent_permissions/audit_logs 字段补齐
-2. 租户内唯一索引
-3. 新增 `model_profiles` 集合与索引（`tenant_id+name` 唯一）
-4. `agents.model_profile_id` 外键引用约束（应用层）
+2. 补齐多实体租户隔离字段：`agent_groups/agents/agent_task_definitions/task_schedules/sessions`
+3. 租户内唯一索引
+4. 新增 `model_profiles` 集合与索引（`tenant_id+name` 唯一）
+5. `agents.model_profile_id` 外键引用约束（应用层）
 
 ## M2 RBAC
 1. 平台/租户两级角色校验

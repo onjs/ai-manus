@@ -22,8 +22,9 @@
   "code": "proc_intake",
   "group_id": "grp_01",
   "model_profile_id": "mpf_openai_gpt5_prod",
+  "skills_config": {"allow": ["default/procurement-intake"]},
   "tools_config": {"profile": "custom", "allow": ["browser", "shell", "file"]},
-  "prompts": {"version": 1, "agents_md": "..."}
+  "prompts": {"version": 1, "agents_md": "你是采购发起岗，负责巡检并触发采购申请。"}
 }
 ```
 
@@ -45,6 +46,43 @@
   "params": {"temperature": 0.2, "max_tokens": 4096},
   "api_key": "sk-xxxx"
 }
+```
+
+## 样例 1.2：创建任务定义（Agent 绑定）
+`POST /agent-task-definitions`
+
+请求：
+```json
+{
+  "agent_id": "agt_01",
+  "name": "库存阈值巡检",
+  "goal_template": "巡检库存系统，发现库存低于阈值时创建采购申请",
+  "input_schema": {"type":"object","properties":{"warehouse_id":{"type":"string"}}},
+  "enabled": true
+}
+```
+
+响应：
+```json
+{"code":"SUCCESS","msg":"ok","data":{"task_id":"tsk_01","agent_id":"agt_01"}}
+```
+
+## 样例 1.3：创建任务定时任务
+`POST /task-schedules`
+
+请求：
+```json
+{
+  "task_id": "tsk_01",
+  "cron_expr": "*/5 * * * *",
+  "timezone": "Asia/Shanghai",
+  "enabled": true
+}
+```
+
+响应：
+```json
+{"code":"SUCCESS","msg":"ok","data":{"task_schedule_id":"sch_01"}}
 ```
 
 响应：
@@ -76,6 +114,9 @@
         "status":"running",
         "agent_id":"agt_01",
         "agent_name":"procurement-intake",
+        "task_id":"tsk_01",
+        "task_name":"库存阈值巡检",
+        "task_schedule_id":"sch_01",
         "group_id":"grp_01",
         "group_name":"采购",
         "source_type":"auto"
@@ -111,6 +152,9 @@
     "status":"running",
     "agent_id":"agt_01",
     "agent_name":"procurement-intake",
+    "task_id":"tsk_01",
+    "task_name":"库存阈值巡检",
+    "task_schedule_id":"sch_01",
     "group_id":"grp_01",
     "group_name":"采购",
     "source_type":"auto",
@@ -209,7 +253,7 @@
 ```
 
 ## 样例 8：调度触发记录（Celery 映射）
-`GET /scheduler/triggers?agent_id=agt_01&status=running`
+`GET /scheduler/triggers?agent_id=agt_01&task_id=tsk_01&status=running`
 
 响应：
 ```json
@@ -221,6 +265,8 @@
       {
         "trigger_id":"trg_1001",
         "status":"running",
+        "task_id":"tsk_01",
+        "task_schedule_id":"sch_01",
         "session_id":"ses_01",
         "session_status":"running",
         "celery_task_id":"cly_9f3e",

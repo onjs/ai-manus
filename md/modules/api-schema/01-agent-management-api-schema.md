@@ -1,7 +1,7 @@
 # 01 Agent管理模块 API Schema 设计稿
 
 ## 范围
-- Agent/Group/Schedule/Permission 管理。
+- Agent/Group/TaskDefinition/Schedule/Permission 管理。
 - 会话列表字段扩展（兼容旧前端）。
 - Agent loop 冻结参数与运行态字段契约（避免实现偏移）。
 
@@ -25,39 +25,48 @@
 - 返回字段补充：`model_profile_id, model_profile_name`
 
 5. `POST /agents`
-- 请求：`name, code, group_id, model_profile_id, tools_config, prompts`
+- 请求：`name, code, group_id, model_profile_id, skills_config, tools_config, prompts`
 - 说明：MVP 不开放 loop 参数写入接口，采用系统冻结默认值。
 
 6. `PATCH /agents/{agent_id}`
-- 请求：`group_id?, status?, model_profile_id?, tools_config?, prompts?`
+- 请求：`group_id?, status?, model_profile_id?, skills_config?, tools_config?, prompts?`
 - 说明：MVP 不支持按 Agent 覆盖 loop 冻结参数。
 
-7. `GET /agent-schedules`
-- 查询参数：`agent_id, enabled`
+7. `GET /agent-task-definitions`
+- 查询参数：`agent_id, enabled, keyword`
 
-8. `POST /agent-schedules`
-- 请求：`agent_id, cron_expr, timezone, enabled`
+8. `POST /agent-task-definitions`
+- 请求：`agent_id, name, goal_template, input_schema, enabled`
 
-9. `PATCH /agent-schedules/{schedule_id}`
+9. `PATCH /agent-task-definitions/{task_id}`
+- 请求：`name?, goal_template?, input_schema?, enabled?`
+
+10. `GET /task-schedules`
+- 查询参数：`task_id, agent_id, enabled`
+
+11. `POST /task-schedules`
+- 请求：`task_id, cron_expr, timezone, enabled`
+
+12. `PATCH /task-schedules/{task_schedule_id}`
 - 请求：`cron_expr?, timezone?, enabled?`
 
-10. `GET /agent-permissions`
+13. `GET /agent-permissions`
 - 查询参数：`agent_id, user_id, grant_type`
 
-11. `POST /agent-permissions`
+14. `POST /agent-permissions`
 - 请求：`agent_id, user_id, grant_type(view|operate)`
 
-12. `DELETE /agent-permissions/{permission_id}`
+15. `DELETE /agent-permissions/{permission_id}`
 
-13. `GET /sessions`
-- 扩展返回字段：`agent_id, agent_name, group_id, group_name, source_type`
+16. `GET /sessions`
+- 扩展返回字段：`agent_id, agent_name, task_id, task_name, task_schedule_id, group_id, group_name, source_type`
 - 扩展查询参数：`group_id, agent_id, source_type`
 - 扩展返回字段（运行态）：`run_meta.summary, run_meta.loop, run_meta.dispatch`
 
-14. `GET /sessions/{session_id}`
+17. `GET /sessions/{session_id}`
 - 返回补充：`run_meta` 完整对象（含 loop 快照、计数器、最近策略决策、celery 分发信息）
 
-15. `GET /sessions/stream`
+18. `GET /sessions/stream`
 - 语义：全局会话摘要 SSE（左侧常驻订阅）。
 - 查询参数：`group_id?, agent_id?, source_type?, since?(optional)`
 - 事件类型：
@@ -70,7 +79,7 @@
   - `agent_id, agent_name, group_id, group_name, source_type`
   - `unread_message_count, event_id, timestamp`
 
-16. `GET /sessions/{session_id}/stream`
+19. `GET /sessions/{session_id}/stream`
 - 语义：会话详情 SSE（中间时间线订阅）。
 - 查询参数：`from_event_id?(optional)`
 - 事件类型：`message/tool/step/plan/wait/done/error/timeline`
@@ -122,6 +131,8 @@
   - `risk_level(low|medium|high)`
   - `timestamp`
 - `run_meta.dispatch`
+  - `task_id`
+  - `task_schedule_id`
   - `trigger_id`
   - `celery_task_id`
   - `queue_name`
@@ -133,6 +144,7 @@
   - `GET /sessions/stream` 用于左侧会话摘要增量更新。
   - `GET /sessions/{session_id}/stream` 用于会话详情实时更新。
 - `/sessions` SSE payload 同步扩展：`agent_id, group_id, source_type`。
+- `/sessions` SSE payload 同步扩展：`agent_id, task_id, task_schedule_id, group_id, source_type`。
 - 新增 timeline action：
   - `guard_warning`
   - `guard_triggered`

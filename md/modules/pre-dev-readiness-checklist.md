@@ -2,7 +2,7 @@
 
 ## 一、设计与边界
 - [x] 01-08 模块设计文档冻结
-- [x] 关键时序锁定：`trigger -> session -> celery_task -> worker -> sandbox`
+- [x] 关键时序锁定：`task_schedule -> trigger -> session -> celery_task -> worker -> sandbox`
 - [x] 取消与超时销毁规则冻结
 - [x] 上下文策略锁定：`planner/execution 双层记忆 + 浏览器剪裁 + 分级压缩`
 - [x] 调度闭环锁定：`Reconciler 对账恢复 + 幂等键 + 并发令牌补偿释放`

@@ -71,7 +71,7 @@
 - 全部结构化日志，JSON 单行，核心字段：
   - `ts, level, service, env`
   - `tenant_id, group_id, agent_id, session_id, step_id`
-  - `trace_id, span_id, schedule_id, trigger_id`
+  - `trace_id, span_id, task_id, task_schedule_id, trigger_id`
   - `action, status, error_code, error_message`
   - `cost_ms, retry_count`
 - 脱敏规则：

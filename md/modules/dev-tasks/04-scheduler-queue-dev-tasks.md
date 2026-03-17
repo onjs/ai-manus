@@ -3,7 +3,7 @@
 ## M1 Celery 基础设施
 1. 新增 Celery App 配置（broker/result backend/serializer/queue routing）
 2. 新增 Worker 启动与健康探针
-3. 新增 Beat 定时触发任务（cron -> trigger）
+3. 新增 Beat 定时触发任务（`task_schedule` cron -> trigger）
 4. Beat leader 选举与续约（单活调度）
 5. 镜像与服务拆分策略落地：
    - `api/worker/worker-beat` 复用同一后端镜像
@@ -17,13 +17,13 @@
 
 ## M2 业务状态机与幂等
 1. trigger 状态机落地：`created|pending|queued|running|finished|cancelled`
-2. `idempotency_key` 防重（唯一键 + 重复命中返回已存在 trigger）
+2. `idempotency_key` 防重（`task_schedule_id + fire_at` 唯一键 + 重复命中返回已存在 trigger）
 3. 保留业务 `pending`（不直接暴露 Celery 原生状态）
 4. 状态写入采用 CAS 版本号，避免并发覆盖
 
 ## M2.1 状态与关联映射
 1. 会话态复用 ai-manus：`pending|running|waiting|completed`
-2. 关联链落库：`trigger_id -> session_id -> celery_task_id -> worker_id -> sandbox_id`
+2. 关联链落库：`task_schedule_id -> task_id -> trigger_id -> session_id -> celery_task_id -> worker_id -> sandbox_id`
 3. `celery_task_id` 写入 `run_meta.dispatch` 便于排障
 4. 会话摘要事件发布：`session_upsert/session_status_changed/session_unread_changed`
 

@@ -5,7 +5,7 @@
 
 ## A. 核心联调链路
 1. 调度触发链路
-- `trigger -> session(auto) -> celery_task -> worker -> sandbox`
+- `task_schedule -> trigger -> session(auto) -> celery_task -> worker -> sandbox`
 - 预期：左侧会话入组、时间线更新、noVNC 可看
 
 1.1 在线自动触发可见性

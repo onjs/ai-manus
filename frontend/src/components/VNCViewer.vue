@@ -1,12 +1,13 @@
 <template>
   <div
     ref="vncContainer"
-    class="vnc-container">
+    class="vnc-container"
+    style="display: flex; width: 100%; height: 100%; overflow: auto; background: rgb(40, 40, 40);">
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount, onMounted, watch, nextTick } from 'vue';
+import { ref, onBeforeUnmount, watch } from 'vue';
 import { getVNCUrl } from '@/api/agent';
 // @ts-ignore
 import RFB from '@novnc/novnc/lib/rfb';
@@ -25,29 +26,6 @@ const emit = defineEmits<{
 
 const vncContainer = ref<HTMLDivElement | null>(null);
 let rfb: RFB | null = null;
-let resizeObserver: ResizeObserver | null = null;
-let resizeRaf: number | null = null;
-
-const refreshViewport = () => {
-  if (!rfb) return;
-  rfb.scaleViewport = true;
-  rfb.clipViewport = false;
-  // noVNC only listens to window resize by default; force reflow when panel size changes.
-  const resizeFn = (rfb as any)?._windowResize;
-  if (typeof resizeFn === 'function') {
-    resizeFn.call(rfb);
-  }
-};
-
-const scheduleRefreshViewport = () => {
-  if (resizeRaf !== null) {
-    cancelAnimationFrame(resizeRaf);
-  }
-  resizeRaf = requestAnimationFrame(() => {
-    resizeRaf = null;
-    refreshViewport();
-  });
-};
 
 const initVNCConnection = async () => {
   if (!vncContainer.value || !props.enabled) return;
@@ -75,14 +53,10 @@ const initVNCConnection = async () => {
     // Set viewOnly based on props, default to false (interactive)
     rfb.viewOnly = props.viewOnly ?? false;
     rfb.scaleViewport = true;
-    rfb.clipViewport = false;
     //rfb.resizeSession = true;
 
     rfb.addEventListener('connect', () => {
       console.log('VNC connection successful');
-      // Run once now and once after layout settles to avoid right-edge clipping.
-      scheduleRefreshViewport();
-      setTimeout(scheduleRefreshViewport, 120);
       emit('connected');
     });
 
@@ -98,9 +72,6 @@ const initVNCConnection = async () => {
   } catch (error) {
     console.error('Failed to initialize VNC connection:', error);
   }
-
-  await nextTick();
-  scheduleRefreshViewport();
 };
 
 const disconnect = () => {
@@ -126,25 +97,7 @@ watch(vncContainer, () => {
   }
 });
 
-onMounted(() => {
-  if (typeof ResizeObserver === 'undefined') return;
-  resizeObserver = new ResizeObserver(() => {
-    scheduleRefreshViewport();
-  });
-  if (vncContainer.value) {
-    resizeObserver.observe(vncContainer.value);
-  }
-});
-
 onBeforeUnmount(() => {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-    resizeObserver = null;
-  }
-  if (resizeRaf !== null) {
-    cancelAnimationFrame(resizeRaf);
-    resizeRaf = null;
-  }
   disconnect();
 });
 
@@ -156,18 +109,4 @@ defineExpose({
 </script>
 
 <style scoped>
-.vnc-container {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: rgb(40, 40, 40);
-  align-items: center;
-  justify-content: center;
-}
-
-:deep(canvas) {
-  max-width: 100%;
-  max-height: 100%;
-}
 </style>

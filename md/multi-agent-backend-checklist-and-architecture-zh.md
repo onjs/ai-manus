@@ -9,6 +9,17 @@
 - 存储继续使用：`Mongo + Redis + GridFS`。
 - 本期不做：`MCP`、`向量数据库`。
 
+### 0.1 核心关系（冻结）
+
+- `tenant 1:n users`
+- `tenant 1:n groups`
+- `group 1:n agents`
+- `agent 1:n task_definitions`
+- `task_definition 1:n task_schedules`
+- `task_schedule 1:n sessions`
+- `session 1:n events/artifacts`
+- `user n:m agents`（通过 `agent_permissions`）
+
 ---
 
 ## 1. 开发清单（按优先级）
@@ -17,14 +28,17 @@
 
 - `Agent Registry`
   - 支持创建/编辑/启停 Agent。
-  - 字段：`agent_id`、`name`、`role_prompt`、`tools_policy`、`enabled`。
+  - 字段：`agent_id`、`name`、`agents_md(role_prompt)`、`model_profile_id`、`skills_config`、`tools_policy`、`enabled`。
+- `Task Definition Registry`
+  - 每个 Agent 维护任务定义（MVP 默认每个 Agent 至少 1 条）。
+  - 字段：`task_id`、`agent_id`、`name`、`goal_template`、`input_schema`、`enabled`。
 - `Model Profiles（模型配置中心）`
   - 平台存储多套 LLM 配置：`provider/model/api_base/params`。
   - `api_key` 加密存储（密文 + key_id + 指纹/掩码展示），明文不落库。
   - Agent 在创建/编辑时选择 `model_profile_id`，运行时按绑定档案调用模型。
   - 调用层优先复用 `ai-manus` 现有 LangChain 适配；`nanobot` 仅参考注册表组织思路，不直接复用其实现。
 - `Celery Scheduler`
-  - `Celery Beat` 按 cron 触发自动任务。
+  - `Celery Beat` 按 `task_schedule` cron 触发自动任务。
   - 触发后写 `trigger` 记录并投递 `Redis broker`。
 - `Execution Queue + Concurrency`
   - broker 承载排队（MVP 固定为 Redis）。
@@ -86,8 +100,9 @@
 - Mongo
   - `model_profiles`（LLM 配置档案，含加密密钥字段）
   - `agents`（Agent 定义，含 `model_profile_id`）
+  - `agent_task_definitions`（Agent 任务定义）
   - `agent_groups`（业务分组）
-  - `agent_schedules`（cron 配置）
+  - `task_schedules`（cron 配置）
   - `agent_permissions`（Agent 级授权）
   - `agent_triggers`（调度触发记录）
   - `sessions`（会话主记录）
@@ -138,7 +153,7 @@ flowchart LR
 
 ## 4. 关键执行链路
 
-1. `Beat` 到点触发，创建 `trigger` 并生成自动 `session_id`（`source_type=auto`）。
+1. `Beat` 到点触发 `task_schedule`，创建 `trigger` 并生成自动 `session_id`（`source_type=auto`）。
 2. 任务投递到 broker，等待 worker 消费。
 3. worker 开始执行前检查并发令牌；超限则回写业务 `pending`。
 4. worker 领到任务后创建独立 sandbox。

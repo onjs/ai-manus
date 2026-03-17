@@ -8,12 +8,13 @@
 - `Beat` 负责按 cron 触发，不直接执行任务。
 - `Worker` 负责执行 Agent Flow，并写回 session events。
 - 业务层保留 `pending`：表示“任务已受理，等待执行资源”。
+- 调度对象冻结：`task_schedule`（不是直接面向 agent）。
 - 用户介入保留 ai-manus 语义：`session.status=waiting`（例如登录/确认）。
 - 运行时部署策略：`api/worker/worker-beat` 复用同一后端镜像，通过不同启动命令区分角色。
 - 服务拆分策略：`worker` 与 `worker-beat` 为两个独立服务；`worker-beat` 默认单副本。
 
 ## 核心时序（冻结）
-- `trigger -> session(auto) -> celery_task -> worker -> sandbox`
+- `task_schedule -> trigger -> session(auto) -> celery_task -> worker -> sandbox`
 - 业务状态机（trigger）：
   - `created -> pending -> queued -> running -> finished|cancelled`
 - 会话状态机（session，兼容前端）：
@@ -29,7 +30,7 @@
 - 由 Worker 启动前获取并发令牌，拿不到则回写 `pending` 并延后执行。
 
 3. 幂等与防重
-- `idempotency_key = schedule_id + fire_at`（默认）。
+- `idempotency_key = task_schedule_id + fire_at`（默认）。
 - 同 key 仅允许一个有效自动会话进入 `running`。
 
 4. 取消与超时
@@ -69,8 +70,8 @@
 
 ## 闭环设计 B：幂等键 + 并发令牌
 1. 幂等键协议
-- 默认：`idempotency_key = schedule_id + fire_at`。
-- 约束：`(tenant_id, agent_id, idempotency_key)` 唯一。
+- 默认：`idempotency_key = task_schedule_id + fire_at`。
+- 约束：`(tenant_id, agent_id, task_id, idempotency_key)` 唯一。
 - 重复触发命中已存在有效 trigger 时，直接返回已存在记录，不新建会话。
 
 2. 并发令牌协议

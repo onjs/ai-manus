@@ -1,7 +1,9 @@
 # 06 平台管理模块（评审稿）
 
 ## 范围
-- 支撑多租户平台化运营：`tenant -> user -> role -> agent_permission` 全链路管理。
+- 支撑多租户平台化运营：
+  - `tenant -> users/groups -> agents -> task_definitions -> task_schedules -> sessions`
+  - `user n:m agents`（通过 `agent_permissions`）。
 - 与会话模型对齐：自动任务和人工介入均落到 `session`，权限控制按租户与 Agent 双重约束。
 
 ## 目标

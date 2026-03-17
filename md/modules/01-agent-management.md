@@ -5,8 +5,18 @@
 
 ## 基线
 - 采用 `Session扩展`，不新增 `agent_runs` 主实体。
+- 数据关系冻结：
+  - `tenant 1:n users`
+  - `tenant 1:n groups`
+  - `group 1:n agents`
+  - `agent 1:n task_definitions`（MVP 每个 Agent 默认 1 个任务定义，可后续扩展多任务）
+  - `task_definition 1:n task_schedules`
+  - `task_schedule 1:n sessions`
+  - `session 1:n events/artifacts`
+  - `user n:m agents`（经 `agent_permissions` 授权）
 - 自动执行：每次触发创建 1 个 `source_type=auto` 会话。
 - 手动执行：用户新建会话为 `source_type=manual`，用户介入自动会话沿用原 `session_id`。
+- Agent 配置项冻结：`model_profile_id + skills + tools + agents_md`。
 - 多租户：`tenant_id` 行级隔离。
 - 权限：`platform_admin / tenant_admin / tenant_user` + `Agent级授权`。
 - 前端左侧会话按 `业务分组(group)` 展示。

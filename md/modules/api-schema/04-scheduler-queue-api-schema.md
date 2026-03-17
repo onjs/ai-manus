@@ -20,7 +20,7 @@
 - 返回：`trigger_id, status(cancelled|not_found|already_finished), cancel_scope(pending|queued|running|waiting), finalized_session_status`
 
 3. `GET /scheduler/triggers`
-- 查询：`agent_id, status, from, to`
+- 查询：`agent_id, task_id, status, from, to`
 - `status` 枚举：`created|pending|queued|running|finished|cancelled`
 - 返回补充：
   - `session_id`
@@ -36,7 +36,7 @@
 
 ## 内部消息模型
 - `TriggerPayload`
-  - `trigger_id, tenant_id, agent_id, group_id, schedule_id, fire_at, priority, idempotency_key`
+  - `trigger_id, tenant_id, group_id, agent_id, task_id, task_schedule_id, fire_at, priority, idempotency_key`
   - `session_id`（创建后回填）
   - `loop_config_snapshot`（冻结参数快照）
     - `max_rounds_per_run=24`
@@ -81,8 +81,8 @@
   - `renew_interval_seconds`
 
 ## 调度到执行映射契约（冻结）
-- `trigger -> session -> celery_task -> worker -> sandbox` 必须写可追溯关联键：
-  - `trigger_id, session_id, celery_task_id, worker_id, sandbox_id`
+- `task_schedule -> trigger -> session -> celery_task -> worker -> sandbox` 必须写可追溯关联键：
+  - `task_schedule_id, task_id, trigger_id, session_id, celery_task_id, worker_id, sandbox_id`
 - 调度到前端实时映射（新增）：
   - 调度创建会话时发布：`session_upsert`（全局摘要流）。
   - 运行状态变化发布：`session_status_changed`、`session_unread_changed`（全局摘要流）。

@@ -1,16 +1,18 @@
 # 01 Agent管理模块 开发任务清单
 
 ## M1 数据与索引
-1. 新增集合：`agent_groups, agents, agent_schedules, agent_permissions`
+1. 新增集合：`agent_groups, agents, agent_task_definitions, task_schedules, agent_permissions`
 2. 扩展 `sessions/users` 字段
 3. 增加租户内唯一索引与查询索引
 4. `agents` 字段改为 `model_profile_id`（不再内嵌 `model_config`）
+5. `agents` 增加 `skills_config/tools_config/prompts.agents_md`
 
 ## M2 接口层
-1. 实现 Group/Agent/Schedule/Permission CRUD
+1. 实现 Group/Agent/TaskDefinition/Schedule/Permission CRUD
 2. 扩展 `/sessions` 列表字段与过滤参数
 3. SSE schema 兼容扩展
 4. Agent 创建/编辑支持选择 `model_profile_id`
+4.1 Agent 创建/编辑支持选择 `skills/tools/agents_md`
 5. 运行入口对接 LangChain 模型路由器（按 `model_profile_id` 选择 provider）
 6. 新增全局摘要流：`GET /sessions/stream`
 7. 新增会话详情流：`GET /sessions/{session_id}/stream`
@@ -19,6 +21,7 @@
 1. `GET /sessions`、`GET /sessions/{id}` 返回 `run_meta.loop`
 2. `run_meta.loop` 字段按冻结 schema 输出（`config_snapshot/counters/last_policy_decision`）
 3. 增加 `run_meta.dispatch`（`trigger_id/celery_task_id/queue_name`）并保持向后兼容
+3.1 增加 `run_meta.dispatch.task_id/task_schedule_id` 便于追踪
 4. 保持向后兼容：旧客户端忽略新增字段不报错
 
 ## M2.2 策略层事件对齐（新增）

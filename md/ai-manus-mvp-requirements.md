@@ -7,6 +7,20 @@
 MVP 目标场景：采购流程自动化。  
 核心目标：让多个 Agent 分别扮演企业内不同岗位员工，按职责处理同一流程的不同阶段，并提供可追溯的操作记录与回放能力。
 
+## 1.1 当前冻结口径（2026-03-17）
+
+- Agent 管理与调度模型：
+  - `tenant 1:n users`
+  - `tenant 1:n groups`
+  - `group 1:n agents`
+  - `agent 1:n task_definitions`（MVP 默认每个 Agent 至少一个任务定义）
+  - `task_definition 1:n task_schedules`
+  - `task_schedule 1:n sessions`
+  - `session 1:n events/artifacts`
+  - `user n:m agents`（`agent_permissions` 授权）
+- Agent 配置冻结：`model_profile_id + skills + tools + agents_md`。
+- 调度冻结：创建定时任务时选择 `task_definition`（而不是只选 Agent）。
+
 ## 2. 业务抽象
 
 ### 2.1 核心实体

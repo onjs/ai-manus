@@ -28,8 +28,9 @@
 5. 验证闭环：幂等防重、并发令牌、Reconciler 对账修复。
 6. 验证部署角色：同一后端镜像分别以 `api/worker/worker-beat` 启动，功能角色正确。
 7. 验证模型配置中心：创建 `model_profile`、Agent 绑定 `model_profile_id`、运行成功。
-8. 验证多模型路由：按 `model_profile_id` 走 LangChain provider 路由并通过冒烟。
-9. 验证双通道 SSE：无主动 chat 时，自动任务可通过全局摘要流实时可见。
+8. 验证任务定义链路：`agent -> task_definition -> task_schedule` 创建与触发可用。
+9. 验证多模型路由：按 `model_profile_id` 走 LangChain provider 路由并通过冒烟。
+10. 验证双通道 SSE：无主动 chat 时，自动任务可通过全局摘要流实时可见。
 
 ### 产出物
 - 冒烟测试记录（用例、结果、截图/录屏链接）。
@@ -41,6 +42,7 @@
 - 同镜像多角色启动稳定：`worker` 正常消费，`worker-beat` 仅投递不执行。
 - 模型密钥安全通过：数据库仅有密文/mask/fingerprint，不出现明文 `api_key`。
 - Provider 路由稳定：至少覆盖 `openai/deepseek/anthropic` 三类模型档案。
+- 任务调度链路稳定：`task_definition + task_schedule` 可连续触发并正确落会话。
 - 双通道 SSE 稳定：全局摘要流与会话详情流并行运行，无事件冲突。
 
 ## E3 观测与告警上线
