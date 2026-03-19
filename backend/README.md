@@ -2,7 +2,7 @@
 
 English | [中文](README_zh.md)
 
-AI Manus is an intelligent conversation agent system based on FastAPI and LangChain chat models. The backend adopts Domain-Driven Design (DDD) architecture, supporting intelligent dialogue, file operations, Shell command execution, and browser automation.
+AI Manus is an intelligent conversation agent system based on FastAPI. The backend adopts Domain-Driven Design (DDD) architecture, and now delegates agent planning/execution to `gateway + sandbox` runtime.
 
 ## Project Architecture
 
@@ -14,8 +14,7 @@ backend/
 │   ├── domain/          # Domain layer: contains core business logic
 │   │   ├── models/      # Domain model definitions
 │   │   ├── services/    # Domain services
-│   │   ├── external/    # External service interfaces
-│   │   └── prompts/     # Prompt templates
+│   │   └── external/    # External service interfaces
 │   ├── application/     # Application layer: orchestrates business processes
 │   │   ├── services/    # Application services
 │   │   └── schemas/     # Data schema definitions
@@ -63,25 +62,23 @@ uv sync
 3. **Environment variable configuration**:
 Create a `.env` file and set the following environment variables:
 ```
-# Model provider configuration
-API_KEY=your_api_key_here                # API key for model providers
-API_BASE=https://api.openai.com/v1       # Base URL for model API (optional for some providers)
-
-# Model configuration
-MODEL_NAME=gpt-4o                        # Model name to use
-MODEL_PROVIDER=openai                    # Model provider for LangChain
-TEMPERATURE=0.7                          # Model temperature parameter
-MAX_TOKENS=2000                          # Maximum output tokens per model request
-
-# Google search configuration
-GOOGLE_SEARCH_API_KEY=                   # Google Search API key for web search functionality (optional)
-GOOGLE_SEARCH_ENGINE_ID=                 # Google custom search engine ID (optional)
+# Gateway runtime configuration
+GATEWAY_BASE_URL=http://localhost:4300   # Gateway service base URL
+GATEWAY_API_KEY=change-me-please         # Internal key for backend -> gateway
+GATEWAY_TIMEOUT_SECONDS=300              # Gateway request timeout
 
 # Sandbox configuration
+SANDBOX_INTERNAL_API_KEY=change-me-please      # Internal key for backend -> sandbox
 SANDBOX_IMAGE=simpleyyt/manus-sandbox          # Sandbox environment Docker image
 SANDBOX_NAME_PREFIX=sandbox              # Sandbox container name prefix
 SANDBOX_TTL_MINUTES=30                   # Sandbox container time-to-live (minutes)
 SANDBOX_NETWORK=manus-network            # Docker network name for communication between sandbox containers
+SANDBOX_ADDRESS=                         # Optional fixed sandbox address
+SANDBOX_CHROME_ARGS=
+SANDBOX_HTTPS_PROXY=
+SANDBOX_HTTP_PROXY=
+SANDBOX_NO_PROXY=
+BROWSER_ENGINE=playwright                # playwright | browser_use
 
 # Database configuration
 MONGODB_URI=mongodb://localhost:27017    # MongoDB connection URL
@@ -89,6 +86,7 @@ MONGODB_DATABASE=manus                   # MongoDB database name
 REDIS_HOST=localhost                     # Redis host
 REDIS_PORT=6379                          # Redis port
 REDIS_DB=0                               # Redis DB index
+REDIS_PASSWORD=
 
 # Log configuration
 LOG_LEVEL=INFO                           # Log level, options: DEBUG, INFO, WARNING, ERROR, CRITICAL

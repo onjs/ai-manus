@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-AI Manus 是一个基于 FastAPI 和 LangChain Chat Model 的智能对话代理系统。该后端采用领域驱动设计(DDD)架构，支持智能对话、文件操作、Shell命令执行以及浏览器自动化等功能。
+AI Manus 是一个基于 FastAPI 的智能对话代理系统。该后端采用领域驱动设计(DDD)架构，当前将 Agent 规划与执行下沉到 `gateway + sandbox` 运行时。
 
 ## 项目架构
 
@@ -14,8 +14,7 @@ backend/
 │   ├── domain/          # 领域层：包含核心业务逻辑
 │   │   ├── models/      # 领域模型定义
 │   │   ├── services/    # 领域服务
-│   │   ├── external/    # 外部服务接口
-│   │   └── prompts/     # 提示词模板
+│   │   └── external/    # 外部服务接口
 │   ├── application/     # 应用层：编排业务流程
 │   │   ├── services/    # 应用服务
 │   │   └── schemas/     # 数据模式定义
@@ -63,25 +62,23 @@ uv sync
 3. **环境变量配置**:
 创建 `.env` 文件并设置以下环境变量:
 ```
-# Model provider configuration
-API_KEY=your_api_key_here                # 模型供应商 API 密钥
-API_BASE=https://api.openai.com/v1       # 模型 API 基础 URL（部分供应商可选）
-
-# Model configuration
-MODEL_NAME=gpt-4o                        # 使用的模型名称
-MODEL_PROVIDER=openai                    # LangChain 模型供应商
-TEMPERATURE=0.7                          # 模型温度参数
-MAX_TOKENS=2000                          # 模型单次请求最大输出 token 数量
-
-# Google search configuration
-GOOGLE_SEARCH_API_KEY=                   # Google Search API 密钥，用于网络搜索功能（可选）
-GOOGLE_SEARCH_ENGINE_ID=                 # Google 自定义搜索引擎 ID（可选）
+# Gateway 运行时配置
+GATEWAY_BASE_URL=http://localhost:4300   # Gateway 服务地址
+GATEWAY_API_KEY=change-me-please         # backend -> gateway 内部密钥
+GATEWAY_TIMEOUT_SECONDS=300              # Gateway 请求超时
 
 # Sandbox configuration
+SANDBOX_INTERNAL_API_KEY=change-me-please      # backend -> sandbox 内部密钥
 SANDBOX_IMAGE=simpleyyt/manus-sandbox          # 沙盒环境 Docker 镜像
 SANDBOX_NAME_PREFIX=sandbox              # 沙盒容器名称前缀
 SANDBOX_TTL_MINUTES=30                   # 沙盒容器生存时间（分钟）
 SANDBOX_NETWORK=manus-network            # Docker 网络名称，用于沙盒容器间通信
+SANDBOX_ADDRESS=                         # 可选，固定沙盒地址
+SANDBOX_CHROME_ARGS=
+SANDBOX_HTTPS_PROXY=
+SANDBOX_HTTP_PROXY=
+SANDBOX_NO_PROXY=
+BROWSER_ENGINE=playwright                # playwright | browser_use
 
 # Database configuration
 MONGODB_URI=mongodb://localhost:27017    # MongoDB 连接 URL
@@ -89,6 +86,7 @@ MONGODB_DATABASE=manus                   # MongoDB 数据库名称
 REDIS_HOST=localhost                     # Redis 主机地址
 REDIS_PORT=6379                          # Redis 端口
 REDIS_DB=0                               # Redis 数据库编号
+REDIS_PASSWORD=
 
 # Log configuration
 LOG_LEVEL=INFO                           # 日志级别，可选: DEBUG, INFO, WARNING, ERROR, CRITICAL

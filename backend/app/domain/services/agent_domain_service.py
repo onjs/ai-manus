@@ -4,7 +4,6 @@ import re
 from datetime import datetime
 from app.domain.models.session import Session, SessionStatus
 from app.domain.external.sandbox import Sandbox
-from app.domain.external.search import SearchEngine
 from app.domain.models.event import BaseEvent, ErrorEvent, DoneEvent, MessageEvent, WaitEvent, AgentEvent
 from pydantic import TypeAdapter
 from app.domain.repositories.session_repository import SessionRepository

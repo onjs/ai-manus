@@ -6,7 +6,6 @@ from starlette.websockets import WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.infrastructure.external.file.gridfsfile import get_file_storage
 from app.infrastructure.external.gateway import get_gateway_client
-from app.infrastructure.external.search import get_search_engine
 from app.domain.models.user import User, UserRole
 from app.application.errors.exceptions import UnauthorizedError
 from app.core.config import get_settings
@@ -24,7 +23,6 @@ from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.infrastructure.external.task.redis_task import RedisStreamTask
 from app.infrastructure.repositories.mongo_agent_repository import MongoAgentRepository
 from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
-from app.infrastructure.repositories.file_mcp_repository import FileMCPRepository
 from app.infrastructure.repositories.user_repository import MongoUserRepository
 
 
@@ -50,8 +48,6 @@ def get_agent_service() -> AgentService:
     sandbox_cls = DockerSandbox
     task_cls = RedisStreamTask
     file_storage = get_file_storage()
-    search_engine = get_search_engine()
-    mcp_repository = FileMCPRepository()
     gateway_client = get_gateway_client()
     
     # Create AgentService instance
@@ -61,8 +57,6 @@ def get_agent_service() -> AgentService:
         sandbox_cls=sandbox_cls,
         task_cls=task_cls,
         file_storage=file_storage,
-        search_engine=search_engine,
-        mcp_repository=mcp_repository,
         gateway_client=gateway_client,
     )
 
