@@ -298,3 +298,40 @@ async def test_chat_rejects_duplicate_running_request():
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
     assert "duplicate request is still running" in events[0].error
+
+
+@pytest.mark.asyncio
+async def test_chat_recreates_task_when_session_running_but_task_missing():
+    repo = _FakeSessionRepository()
+    repo.session.status = SessionStatus.RUNNING
+    task = _FakeTask()
+
+    service = AgentDomainService.__new__(AgentDomainService)
+    service._session_repository = repo
+    service._task_cls = None
+    service._chat_idempotency = ChatIdempotencyService(redis_client=_FakeRedisClient())
+
+    create_calls = {"count": 0}
+
+    async def _create_task(_session):
+        create_calls["count"] += 1
+        return task
+
+    async def _get_task(_session):
+        return None
+
+    service._create_task = _create_task
+    service._get_task = _get_task
+
+    events = [
+        event
+        async for event in service.chat(
+            session_id="s1",
+            user_id="u1",
+            message="hello",
+            request_id="req-running-missing-task",
+        )
+    ]
+
+    assert create_calls["count"] == 1
+    assert [event.type for event in events] == ["message", "done"]

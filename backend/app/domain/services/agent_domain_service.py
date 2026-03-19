@@ -151,7 +151,7 @@ class AgentDomainService:
                 idempotency_lock_acquired = True
 
             if has_message:
-                if session.status != SessionStatus.RUNNING:
+                if task is None:
                     task = await self._create_task(session)
                     if not task:
                         raise RuntimeError("Failed to create task")
