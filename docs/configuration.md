@@ -52,7 +52,7 @@
 | `GATEWAY_TOKEN_ISSUER_SECRET` | `dev-gateway-secret` | 是 | Gateway 签发 token 的密钥 |
 | `GATEWAY_JWT_ALGORITHM` | `HS256` | 否 | Gateway JWT 算法 |
 | `GATEWAY_TOKEN_TTL_SECONDS` | `1800` | 否 | 下发给 sandbox 的 token TTL |
-| `GATEWAY_REDIS_URL` | - | 否 | token 状态存储（未配置时使用进程内） |
+| `GATEWAY_REDIS_URL` | - | 是 | token 状态存储（强制 Redis，保障多节点一致性） |
 | `GATEWAY_REDIS_PREFIX` | `gw` | 否 | token 状态前缀 |
 | `API_BASE` | - | 是 | 上游 OpenAI 兼容接口地址 |
 | `API_KEY` | - | 否 | 上游模型 API Key |

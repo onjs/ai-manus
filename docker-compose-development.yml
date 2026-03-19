@@ -82,6 +82,7 @@ services:
       - .env
     environment:
       - GATEWAY_INTERNAL_API_KEY=${GATEWAY_INTERNAL_API_KEY:?GATEWAY_INTERNAL_API_KEY is required}
+      - GATEWAY_REDIS_URL=${GATEWAY_REDIS_URL:?GATEWAY_REDIS_URL is required}
     restart: unless-stopped
     networks:
       - manus-network

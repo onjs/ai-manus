@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     def validate_required_security(self) -> "Settings":
         if not self.gateway_internal_api_key or not self.gateway_internal_api_key.strip():
             raise ValueError("GATEWAY_INTERNAL_API_KEY is required")
+        if not self.gateway_redis_url or not self.gateway_redis_url.strip():
+            raise ValueError("GATEWAY_REDIS_URL is required")
         return self
 
 

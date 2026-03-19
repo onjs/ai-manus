@@ -10,6 +10,7 @@ def test_gateway_health_and_ready():
     os.environ["MODEL_PROVIDER"] = "openai"
     os.environ["MODEL_NAME"] = "gpt-4o-mini"
     os.environ["GATEWAY_INTERNAL_API_KEY"] = "test-gw-key"
+    os.environ["GATEWAY_REDIS_URL"] = "redis://test-redis:6379/0"
     get_settings.cache_clear()
 
     from app.main import app

@@ -52,7 +52,7 @@ This document reflects the current active path only: `frontend -> backend -> gat
 | `GATEWAY_TOKEN_ISSUER_SECRET` | `dev-gateway-secret` | Yes | Secret used to sign gateway-issued tokens |
 | `GATEWAY_JWT_ALGORITHM` | `HS256` | No | Gateway JWT algorithm |
 | `GATEWAY_TOKEN_TTL_SECONDS` | `1800` | No | Issued token TTL for sandbox runtime |
-| `GATEWAY_REDIS_URL` | - | No | Token state store (falls back to in-process when empty) |
+| `GATEWAY_REDIS_URL` | - | Yes | Token state store (Redis is mandatory for multi-node consistency) |
 | `GATEWAY_REDIS_PREFIX` | `gw` | No | Token state prefix |
 | `API_BASE` | - | Yes | Upstream OpenAI-compatible endpoint |
 | `API_KEY` | - | No | Upstream model API key |

@@ -13,7 +13,7 @@
         id="radix-:r5m:-content-setup" tabindex="0"
         class="py-2 focus-visible:outline-none data-[state=inactive]:hidden flex-1 font-mono text-sm leading-relaxed px-3 outline-none overflow-auto whitespace-pre-wrap break-all"
         style="animation-duration: 0s;">
-        <code v-html="shell"></code>
+        <pre class="m-0 whitespace-pre-wrap break-all">{{ shell }}</pre>
       </div>
     </div>
   </div>
@@ -52,8 +52,8 @@ const updateShellContent = (console: any) => {
   if (!console) return;
   let newShell = '';
   for (const e of console) {
-    newShell += `<span style="color: rgb(0, 187, 0);">${e.ps1}</span><span> ${e.command}</span>\n`;
-    newShell += `<span>${e.output}</span>\n`;
+    newShell += `${e.ps1} ${e.command}\n`;
+    newShell += `${e.output}\n`;
   }
   if (newShell !== shell.value) {
     shell.value = newShell;

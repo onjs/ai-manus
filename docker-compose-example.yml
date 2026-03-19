@@ -56,6 +56,7 @@ services:
       - GATEWAY_TOKEN_ISSUER_SECRET=change-me
       - GATEWAY_JWT_ALGORITHM=HS256
       - GATEWAY_TOKEN_TTL_SECONDS=1800
+      - GATEWAY_REDIS_URL=redis://redis:6379/0
       - API_BASE=https://api.openai.com/v1
       - API_KEY=sk-xxxx
       - MODEL_NAME=gpt-4o-mini

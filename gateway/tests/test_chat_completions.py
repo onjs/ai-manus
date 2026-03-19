@@ -1,8 +1,10 @@
 import os
+import time
 from typing import Any, AsyncGenerator
 
 from fastapi.testclient import TestClient
 
+from app.application.services.token_service import TokenService
 from app.core.auth import get_token_service
 from app.core.config import get_settings
 
@@ -24,15 +26,61 @@ class FakeProvider:
         yield b"data: [DONE]\n\n"
 
 
+class InMemoryTokenStateRepository:
+    def __init__(self) -> None:
+        self._active: dict[str, tuple[dict[str, Any], int]] = {}
+        self._revoked: dict[str, tuple[dict[str, Any], int]] = {}
+
+    async def set_active(self, token_id: str, claims: dict[str, Any], ttl_seconds: int) -> None:
+        self._active[token_id] = (claims, int(time.time()) + max(1, ttl_seconds))
+
+    async def get_active(self, token_id: str) -> dict[str, Any] | None:
+        item = self._active.get(token_id)
+        if item is None:
+            return None
+        payload, expire_at = item
+        if expire_at <= int(time.time()):
+            self._active.pop(token_id, None)
+            return None
+        return payload
+
+    async def remove_active(self, token_id: str) -> None:
+        self._active.pop(token_id, None)
+
+    async def set_revoked(self, token_id: str, reason: str, ttl_seconds: int) -> None:
+        self._revoked[token_id] = (
+            {"reason": reason, "revoked_at": int(time.time())},
+            int(time.time()) + max(1, ttl_seconds),
+        )
+
+    async def get_revoked(self, token_id: str) -> dict[str, Any] | None:
+        item = self._revoked.get(token_id)
+        if item is None:
+            return None
+        payload, expire_at = item
+        if expire_at <= int(time.time()):
+            self._revoked.pop(token_id, None)
+            return None
+        return payload
+
+
 def _prepare_env() -> None:
     os.environ["API_BASE"] = "http://mockserver:8090/v1"
     os.environ["MODEL_PROVIDER"] = "openai"
     os.environ["MODEL_NAME"] = "gpt-4o-mini"
     os.environ["GATEWAY_INTERNAL_API_KEY"] = "test-gw-key"
     os.environ["GATEWAY_TOKEN_ISSUER_SECRET"] = "secret-key-secret-key-secret-key-32"
-    os.environ["GATEWAY_REDIS_URL"] = ""
+    os.environ["GATEWAY_REDIS_URL"] = "redis://test-redis:6379/0"
     get_settings.cache_clear()
     get_token_service.cache_clear()
+
+
+def _override_token_service(app: Any) -> None:
+    token_service = TokenService(
+        settings=get_settings(),
+        state_repository=InMemoryTokenStateRepository(),
+    )
+    app.dependency_overrides[get_token_service] = lambda: token_service
 
 
 def _issue_token(client: TestClient, scopes: list[str]) -> str:
@@ -58,6 +106,8 @@ def test_chat_completions_requires_bearer_token(monkeypatch):
     from app.main import app
 
     monkeypatch.setattr(runtime_routes.ProviderFactory, "create", lambda settings: FakeProvider())
+    app.dependency_overrides.clear()
+    _override_token_service(app)
 
     client = TestClient(app)
     payload = {"messages": [{"role": "user", "content": "hello"}]}
@@ -71,6 +121,8 @@ def test_chat_completions_non_stream(monkeypatch):
     from app.main import app
 
     monkeypatch.setattr(runtime_routes.ProviderFactory, "create", lambda settings: FakeProvider())
+    app.dependency_overrides.clear()
+    _override_token_service(app)
 
     client = TestClient(app)
     token = _issue_token(client, ["llm:stream"])
@@ -90,6 +142,8 @@ def test_chat_completions_stream(monkeypatch):
     from app.main import app
 
     monkeypatch.setattr(runtime_routes.ProviderFactory, "create", lambda settings: FakeProvider())
+    app.dependency_overrides.clear()
+    _override_token_service(app)
 
     client = TestClient(app)
     token = _issue_token(client, ["llm:stream"])
@@ -112,6 +166,8 @@ def test_chat_completions_scope_denied(monkeypatch):
     from app.main import app
 
     monkeypatch.setattr(runtime_routes.ProviderFactory, "create", lambda settings: FakeProvider())
+    app.dependency_overrides.clear()
+    _override_token_service(app)
 
     client = TestClient(app)
     token = _issue_token(client, ["llm:ask"])
