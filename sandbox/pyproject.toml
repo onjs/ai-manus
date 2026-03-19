@@ -5,6 +5,7 @@ description = "Sandbox service for AI Manus"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "cryptography>=46.0.1",
     "email-validator>=2.3.0",
     "fastapi>=0.121.2",
     "httpx>=0.28.1",

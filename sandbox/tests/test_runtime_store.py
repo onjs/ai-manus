@@ -1,3 +1,5 @@
+import sqlite3
+
 from app.services.runtime_store import RuntimeStore
 
 
@@ -17,6 +19,17 @@ def test_runtime_store_gateway_credentials_and_runs(tmp_path):
     cred = store.get_gateway_credential("s1")
     assert cred is not None
     assert cred["gateway_token_id"] == "tid"
+    assert cred["gateway_token"] == "token"
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT gateway_token FROM gateway_credentials WHERE session_id = ?",
+            ("s1",),
+        ).fetchone()
+    assert row is not None
+    raw_token = str(row[0])
+    assert raw_token != "token"
+    assert raw_token.startswith("enc:v1:")
 
     run = store.upsert_run(
         session_id="s1",

@@ -5,13 +5,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.config import settings
+from app.services.secret_cipher import SecretCipher
 
 
 class RuntimeStore:
     """SQLite-backed shared store for runtime runner/API processes."""
 
-    def __init__(self, db_path: str | None = None):
+    def __init__(self, db_path: str | None = None, secret_cipher: SecretCipher | None = None):
         self._db_path = db_path or settings.RUNTIME_DB_PATH
+        self._secret_cipher = secret_cipher or SecretCipher(settings.SANDBOX_INTERNAL_API_KEY or "")
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -98,6 +100,7 @@ class RuntimeStore:
         scopes: list[str],
     ) -> None:
         now = int(time.time())
+        encrypted_gateway_token = self._secret_cipher.encrypt(gateway_token)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -116,7 +119,7 @@ class RuntimeStore:
                 (
                     session_id,
                     gateway_base_url,
-                    gateway_token,
+                    encrypted_gateway_token,
                     gateway_token_id,
                     gateway_token_expire_at,
                     json.dumps(scopes, ensure_ascii=False),
@@ -142,10 +145,12 @@ class RuntimeStore:
             ).fetchone()
         if not row:
             return None
+        gateway_token_ciphertext = str(row["gateway_token"])
+        gateway_token = self._secret_cipher.decrypt(gateway_token_ciphertext)
         return {
             "session_id": row["session_id"],
             "gateway_base_url": row["gateway_base_url"],
-            "gateway_token": row["gateway_token"],
+            "gateway_token": gateway_token,
             "gateway_token_id": row["gateway_token_id"],
             "gateway_token_expire_at": int(row["gateway_token_expire_at"]),
             "scopes": json.loads(row["scopes_json"] or "[]"),
