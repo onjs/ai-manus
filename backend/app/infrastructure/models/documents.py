@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Type, TypeVar, Generic, get_args, Self
+from typing import Dict, Optional, List, Type, TypeVar, Generic, Self
 from datetime import datetime, timezone, UTC
 from beanie import Document
 from pydantic import BaseModel
@@ -78,7 +78,6 @@ class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class
         indexes = [
             "agent_id",
         ]
-
 
 class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model_class=Session):
     """MongoDB model for Session"""

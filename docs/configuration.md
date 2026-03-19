@@ -1,156 +1,89 @@
-# 📋 配置说明
+# 配置说明（Gateway + Sandbox 架构）
 
-## 配置项
+本文档仅描述当前生效配置：`frontend -> backend -> gateway -> sandbox`。
 
-### 模型提供商配置
+## Backend
 
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `API_KEY` | - | 是 | LLM 模型的 API 密钥 |
-| `API_BASE` | `http://mockserver:8090/v1` | 否 | API 基础地址，用于指定模型服务的端点 |
-
-### 模型配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `MODEL_PROVIDER` | `openai` | 否 | 模型提供商（如 `openai`、`anthropic`、`google_genai`、`ollama`） |
-| `MODEL_NAME` | `deepseek-chat` | 是 | 要使用的模型名称 |
-| `TEMPERATURE` | `0.7` | 否 | 模型响应的随机性程度，范围 0-1 |
-| `MAX_TOKENS` | `2000` | 否 | 模型响应的最大 token 数量 |
-
-### MongoDB 配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `MONGODB_URI` | `mongodb://mongodb:27017` | 否 | MongoDB 连接字符串 |
-| `MONGODB_DATABASE` | `manus` | 否 | 数据库名称 |
+| 配置项 | 默认值 | 必需 | 说明 |
+|---|---|---|---|
+| `GATEWAY_BASE_URL` | - | 是 | Gateway 地址（如 `http://gateway:8100`） |
+| `GATEWAY_API_KEY` | - | 是 | Backend 调用 Gateway 的内部密钥 |
+| `GATEWAY_TIMEOUT_SECONDS` | `300` | 否 | Backend 到 Gateway 超时 |
+| `SANDBOX_INTERNAL_API_KEY` | - | 是 | Backend 调用 Sandbox Runtime API 的内部密钥 |
+| `SANDBOX_ADDRESS` | - | 否 | 固定 sandbox 地址（单沙箱模式） |
+| `SANDBOX_IMAGE` | - | 否 | 动态创建沙箱容器时使用的镜像 |
+| `SANDBOX_NAME_PREFIX` | - | 否 | 动态沙箱容器名前缀 |
+| `SANDBOX_TTL_MINUTES` | `30` | 否 | 动态沙箱容器 TTL |
+| `SANDBOX_NETWORK` | - | 否 | 动态沙箱容器网络 |
+| `SANDBOX_CHROME_ARGS` | - | 否 | 传递给 sandbox chrome 参数 |
+| `SANDBOX_HTTPS_PROXY` | - | 否 | sandbox HTTPS 代理 |
+| `SANDBOX_HTTP_PROXY` | - | 否 | sandbox HTTP 代理 |
+| `SANDBOX_NO_PROXY` | - | 否 | sandbox NO_PROXY |
+| `BROWSER_ENGINE` | `playwright` | 否 | backend 连接 sandbox CDP 时使用的浏览器驱动 |
+| `MONGODB_URI` | `mongodb://mongodb:27017` | 否 | MongoDB 连接串 |
+| `MONGODB_DATABASE` | `manus` | 否 | MongoDB 库名 |
 | `MONGODB_USERNAME` | - | 否 | MongoDB 用户名 |
 | `MONGODB_PASSWORD` | - | 否 | MongoDB 密码 |
-
-> **注意**: MongoDB 配置项当前被注释，表示可能是可选功能或尚未完全实现。
-
-### Redis 配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `REDIS_HOST` | `redis` | 否 | Redis 服务器地址 |
-| `REDIS_PORT` | `6379` | 否 | Redis 服务器端口 |
-| `REDIS_DB` | `0` | 否 | Redis 数据库编号 |
+| `REDIS_HOST` | `redis` | 否 | Redis 地址 |
+| `REDIS_PORT` | `6379` | 否 | Redis 端口 |
+| `REDIS_DB` | `0` | 否 | Redis DB |
 | `REDIS_PASSWORD` | - | 否 | Redis 密码 |
-
-> **注意**: Redis 配置项当前被注释，表示可能是可选功能或尚未完全实现。
-
-### 沙箱配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `SANDBOX_ADDRESS` | - | 否 | 沙箱服务器地址 |
-| `SANDBOX_IMAGE` | `simpleyyt/manus-sandbox` | 否 | Docker 沙箱镜像名称 |
-| `SANDBOX_NAME_PREFIX` | `sandbox` | 否 | 沙箱容器名称前缀 |
-| `SANDBOX_TTL_MINUTES` | `30` | 否 | 沙箱生存时间（分钟） |
-| `SANDBOX_NETWORK` | `manus-network` | 否 | Docker 网络名称 |
-| `SANDBOX_CHROME_ARGS` | - | 否 | Chrome 浏览器启动参数 |
-| `SANDBOX_HTTPS_PROXY` | - | 否 | HTTPS 代理设置 |
-| `SANDBOX_HTTP_PROXY` | - | 否 | HTTP 代理设置 |
-| `SANDBOX_NO_PROXY` | - | 否 | 不使用代理的地址列表 |
-
-### 搜索引擎配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `SEARCH_PROVIDER` | `bing_web` | 否 | 搜索引擎提供商 (`baidu`、`baidu_web`、`google`、`bing`、`bing_web` 或 `tavily`) |
-
-#### 百度搜索配置
-
-仅当 `SEARCH_PROVIDER=baidu` 时使用（通过百度千帆 AI 搜索 API）：
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `BAIDU_SEARCH_API_KEY` | - | 是 | 百度千帆 AI 搜索 API 密钥，从[百度千帆控制台](https://console.bce.baidu.com/qianfan/ais/console/onlineService)获取 |
-
-> 若不想申请 API 密钥，可将 `SEARCH_PROVIDER` 设为 `baidu_web`，直接通过网页抓取百度搜索结果，无需任何密钥。
-
-#### Bing 搜索配置
-
-仅当 `SEARCH_PROVIDER=bing` 时使用（通过官方 API 搜索）：
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `BING_SEARCH_API_KEY` | - | 是 | Bing Web Search API 密钥，从 [Azure](https://www.microsoft.com/en-us/bing/apis/bing-web-search-api) 获取 |
-
-> 若不想申请 API 密钥，可将 `SEARCH_PROVIDER` 设为 `bing_web`，直接通过网页抓取 Bing 搜索结果，无需任何密钥。
-
-#### Google 搜索配置
-
-仅当 `SEARCH_PROVIDER=google` 时使用：
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `GOOGLE_SEARCH_API_KEY` | - | 是 | Google 搜索 API 密钥 |
-| `GOOGLE_SEARCH_ENGINE_ID` | - | 是 | Google 自定义搜索引擎 ID |
-
-#### Tavily 搜索配置
-
-仅当 `SEARCH_PROVIDER=tavily` 时使用：
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `TAVILY_API_KEY` | - | 是 | Tavily 搜索 API 密钥 |
-
-### 认证配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `AUTH_PROVIDER` | `password` | 否 | 认证提供商 (`password`、`none` 或 `local`) |
-
-#### 密码认证配置
-
-仅当 `AUTH_PROVIDER=password` 时使用：
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `PASSWORD_SALT` | - | 否 | 密码加密盐值 |
+| `AUTH_PROVIDER` | `password` | 否 | 认证模式：`password` / `none` / `local` |
+| `PASSWORD_SALT` | - | 否 | 密码加盐 |
 | `PASSWORD_HASH_ROUNDS` | `10` | 否 | 密码哈希轮数 |
+| `LOCAL_AUTH_EMAIL` | `admin@example.com` | 否 | 本地认证邮箱 |
+| `LOCAL_AUTH_PASSWORD` | `admin` | 否 | 本地认证密码 |
+| `JWT_SECRET_KEY` | - | 是 | JWT 密钥 |
+| `JWT_ALGORITHM` | `HS256` | 否 | JWT 算法 |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | 否 | Access Token 过期时间 |
+| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `7` | 否 | Refresh Token 过期时间 |
+| `EMAIL_HOST` | - | 否 | SMTP 主机 |
+| `EMAIL_PORT` | - | 否 | SMTP 端口 |
+| `EMAIL_USERNAME` | - | 否 | SMTP 用户名 |
+| `EMAIL_PASSWORD` | - | 否 | SMTP 密码 |
+| `EMAIL_FROM` | - | 否 | 发件人 |
+| `LOG_LEVEL` | `INFO` | 否 | 日志级别 |
 
-#### 本地认证配置
+## Gateway
 
-仅当 `AUTH_PROVIDER=local` 时使用：
+| 配置项 | 默认值 | 必需 | 说明 |
+|---|---|---|---|
+| `GATEWAY_INTERNAL_API_KEY` | - | 是 | Gateway 内部调用密钥（用于 issue/revoke/introspect 等） |
+| `GATEWAY_TOKEN_ISSUER_SECRET` | `dev-gateway-secret` | 是 | Gateway 签发 token 的密钥 |
+| `GATEWAY_JWT_ALGORITHM` | `HS256` | 否 | Gateway JWT 算法 |
+| `GATEWAY_TOKEN_TTL_SECONDS` | `1800` | 否 | 下发给 sandbox 的 token TTL |
+| `GATEWAY_REDIS_URL` | - | 否 | token 状态存储（未配置时使用进程内） |
+| `GATEWAY_REDIS_PREFIX` | `gw` | 否 | token 状态前缀 |
+| `API_BASE` | - | 是 | 上游 OpenAI 兼容接口地址 |
+| `API_KEY` | - | 否 | 上游模型 API Key |
+| `MODEL_NAME` | `gpt-4o-mini` | 否 | 默认模型名 |
+| `MODEL_PROVIDER` | `openai` | 否 | 提供商标识（当前走 OpenAI 兼容协议） |
+| `TEMPERATURE` | `0.7` | 否 | 默认温度 |
+| `MAX_TOKENS` | `2000` | 否 | 默认 max tokens |
+| `EXTRA_HEADERS` | - | 否 | 上游请求附加 Header（JSON） |
+| `GATEWAY_TIMEOUT_SECONDS` | `120` | 否 | Gateway 到上游超时 |
+| `LOG_LEVEL` | `INFO` | 否 | 日志级别 |
 
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `LOCAL_AUTH_EMAIL` | `admin@example.com` | 否 | 本地管理员邮箱 |
-| `LOCAL_AUTH_PASSWORD` | `admin` | 否 | 本地管理员密码 |
+## Sandbox
 
-### JWT 配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `JWT_SECRET_KEY` | `your-secret-key-here` | 是 | JWT 签名密钥（生产环境必须更改） |
-| `JWT_ALGORITHM` | `HS256` | 否 | JWT 签名算法 |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | 否 | 访问令牌过期时间（分钟） |
-| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `7` | 否 | 刷新令牌过期时间（天） |
-
-### 邮箱配置
-
-仅当 `AUTH_PROVIDER=password` 时使用：
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `EMAIL_HOST` | - | 否 | SMTP 服务器地址 |
-| `EMAIL_PORT` | `587` | 否 | SMTP 服务器端口 |
-| `EMAIL_USERNAME` | - | 否 | 邮箱用户名 |
-| `EMAIL_PASSWORD` | - | 否 | 邮箱密码 |
-| `EMAIL_FROM` | - | 否 | 发件人邮箱地址 |
-
-### MCP 配置
-
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `MCP_CONFIG_PATH` | `/etc/mcp.json` | 否 | MCP 配置文件路径 |
-
-### 日志配置
-| 配置项 | 默认值 | 是否必需 | 说明 |
-|--------|--------|----------|------|
-| `LOG_LEVEL` | `INFO` | 否 | 日志级别 (`DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`) |
-
-
+| 配置项 | 默认值 | 必需 | 说明 |
+|---|---|---|---|
+| `SANDBOX_INTERNAL_API_KEY` | - | 是 | Sandbox Runtime API 内部密钥 |
+| `RUNTIME_DB_PATH` | `/tmp/sandbox_runtime.db` | 否 | sandbox 本地运行时存储 |
+| `SEARCH_PROVIDER` | `duckduckgo` | 否 | sandbox 搜索工具提供商 |
+| `BING_SEARCH_API_KEY` | - | 否 | Bing API Key（按需） |
+| `GOOGLE_SEARCH_API_KEY` | - | 否 | Google API Key（按需） |
+| `GOOGLE_SEARCH_ENGINE_ID` | - | 否 | Google CSE ID（按需） |
+| `TAVILY_API_KEY` | - | 否 | Tavily API Key（按需） |
+| `MCP_CONFIG_PATH` | `/etc/mcp.json` | 否 | MCP 配置文件 |
+| `MODEL_NAME` | `gpt-4o` | 否 | sandbox agent 默认模型名 |
+| `MODEL_PROVIDER` | `openai` | 否 | sandbox agent 模型提供商 |
+| `TEMPERATURE` | `0.7` | 否 | sandbox agent 默认温度 |
+| `MAX_TOKENS` | `2000` | 否 | sandbox agent 默认 max tokens |
+| `AGENT_MODEL_MAX_ITERATIONS` | `100` | 否 | 单轮模型迭代上限 |
+| `AGENT_MODEL_MAX_RETRIES` | `3` | 否 | 模型重试次数 |
+| `AGENT_MODEL_RETRY_INTERVAL_SECONDS` | `1.0` | 否 | 模型重试间隔 |
+| `AGENT_LOOP_MAX_ROUNDS` | `40` | 否 | Agent loop 轮次上限 |
+| `AGENT_LOOP_TIMEOUT_SECONDS` | `1800` | 否 | Agent loop 超时 |
+| `SERVICE_TIMEOUT_MINUTES` | - | 否 | sandbox 服务级超时 |
+| `LOG_LEVEL` | `INFO` | 否 | 日志级别 |

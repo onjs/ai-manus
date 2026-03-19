@@ -166,34 +166,22 @@ MVP 目标场景：采购流程自动化。
 - 中间保留对话输入能力，支持 Human-in-the-loop 引导。
 - 本阶段本质是“在现有 ai-manus 上增加自动操作能力”，不是重写前端交互框架。
 
-## 12. OpenFang 接入 MVP（2026-03-13）
+## 12. Gateway + Sandbox 迁移（2026-03-13 ~ 2026-03-19）
 
-### 12.1 已接入能力（当前分支）
+### 12.1 当前基线
 
-- 后端新增运行时开关：`AGENT_RUNTIME=manus | openfang`。
-- 当 `AGENT_RUNTIME=openfang` 时，`Session -> Chat` 执行链会切到 `OpenFangTaskRunner`。
-- 新增 OpenFang HTTP/SSE 客户端桥接：
-  - `POST /api/agents/{id}/message/stream`
-  - 解析 `chunk/tool_use/tool_result/done` 事件并映射为 ai-manus 原生 SSE 事件。
-- 会话新增 `openfang_agent_id` 字段，用于绑定 OpenFang agent（跨多轮消息复用）。
+- Backend 仅做会话编排、SSE 输出、持久化，不再承载 Agent 主循环。
+- Agent 生命周期与 loop 迁移到 sandbox 内执行。
+- Gateway 作为唯一 LLM 出口，backend/sandbox 均不直连模型 API。
+- 前端事件协议保持 ai-manus 既有格式：`tool/step/message/plan/title/wait/done/error`。
 
-### 12.2 当前映射策略（最小可跑）
+### 12.2 当前链路
 
-- `chunk`：拼接为最终 assistant 消息。
-- `tool_use/tool_result`：映射为 ai-manus 的 `tool` 事件（暂统一按 `mcp` 类型展示，避免依赖 sandbox 回读接口）。
-- `done`：补充 usage 工具事件，并输出 `done` 事件。
-
-### 12.3 当前限制
-
-- 右侧实时面板暂不复用 OpenFang 原生浏览器/shell/file 实时画面（仍沿用 ai-manus 现有渲染协议）。
-- OpenFang 工具事件先按通用记录展示，不做 shell/file 专属快照回放。
-- 若要达到“逐字符终端回放 + 文件版本快照 + 点击时间线还原”，需要后续补充统一快照仓储与事件协议适配层。
-
-### 12.4 下一步建议
-
-1. 先验证端到端：ai-manus 前端发消息 -> OpenFang 执行 -> ai-manus 时间线展示。
-2. 增加 Agent 分组视图（左侧）并标注 `runtime=manus/openfang`。
-3. 设计统一 `OperationRecord` 结构，把 OpenFang 事件与 ai-manus tool 事件都归一化入库。
+1. Backend 下发 gateway 凭证到 sandbox runtime。
+2. Backend 启动 sandbox runner。
+3. sandbox runner 运行 `PlanActFlow`，工具在 sandbox 内执行。
+4. sandbox 通过 SSE 向 backend 输出事件。
+5. backend 映射并输出前端 SSE，维持现有 UI 渲染协议。
 
 ## 13. 实施顺序调整（2026-03-14）
 

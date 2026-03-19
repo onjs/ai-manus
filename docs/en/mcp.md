@@ -59,13 +59,13 @@ MCP server configuration is managed through the `mcp.json` file, which contains 
 
 ### Docker Compose Configuration
 
-Configure MCP service in `docker-compose.yml`:
+Configure MCP in `docker-compose.yml` (currently loaded by the **sandbox** service):
 
 ```yaml
 ...
 services:
-  backend:
-    image: simpleyyt/manus-backend
+  sandbox:
+    image: manus-sandbox
     volumes:
       - ./mcp.json:/etc/mcp.json  # Mount MCP configuration file
       - ...

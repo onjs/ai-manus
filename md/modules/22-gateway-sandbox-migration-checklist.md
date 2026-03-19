@@ -77,14 +77,11 @@
 ---
 
 ## 当前偏差项（需你确认）
-1. runtime 策略仍保留 `manus/openfang/gateway` 三种选择（尚未收敛为 gateway-only）。
-2. sandbox browser 执行层当前是 `runtime_browser.py`（CDP 实现），不是完全 1:1 复用 backend 原 browser 适配器。
-3. sandbox 进程间协调当前使用 SQLite store + 轮询命令（可运行，但不是事件总线化方案）。
+1. sandbox browser 执行层当前是 `runtime_browser.py`（CDP 实现），不是完全 1:1 复用 backend 原 browser 适配器。
+2. sandbox 进程间协调当前使用 SQLite store + 轮询命令（可运行，但不是事件总线化方案）。
 
 ---
 
 ## 下一步（建议执行顺序）
-1. 收敛 runtime 策略为 `gateway-only`，删除 `manus/openfang` runtime 分支代码。
-2. Browser 执行层改为与 ai-manus 原 browser 能力对齐（优先复用原工具行为定义，不改前端协议）。
-3. 完整联调：`frontend -> backend -> sandbox -> gateway -> model`，验证表单录入全链路。
-
+1. Browser 执行层改为与 ai-manus 原 browser 能力对齐（优先复用原工具行为定义，不改前端协议）。
+2. 完整联调：`frontend -> backend -> sandbox -> gateway -> model`，验证表单录入全链路。

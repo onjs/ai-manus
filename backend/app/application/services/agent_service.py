@@ -12,6 +12,7 @@ from app.domain.models.session import Session
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_domain_service import AgentDomainService
+from app.core.config import get_settings
 from app.infrastructure.external.gateway.client import GatewayClient
 from app.interfaces.schemas.file import FileViewResponse
 from app.interfaces.schemas.session import ShellViewResponse
@@ -51,14 +52,15 @@ class AgentService:
 
     async def _create_agent(self) -> Agent:
         logger.info("Creating new agent")
-        agent = Agent()
+        settings = get_settings()
+        agent = Agent(
+            model_name=settings.model_name,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+        )
         logger.info(f"Created new Agent with ID: {agent.id}")
-        
-        # Save agent to repository
         await self._agent_repository.save(agent)
         logger.info(f"Saved agent {agent.id} to repository")
-        
-        logger.info(f"Agent created successfully with ID: {agent.id}")
         return agent
 
     async def chat(
