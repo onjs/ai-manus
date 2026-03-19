@@ -14,7 +14,7 @@
 
 ## M3 配额
 1. max_agents/max_active_schedules/max_concurrency/max_storage_gb
-2. 超限拒绝或业务 `pending` 行为（Celery 侧等待执行槽位）
+2. 超限拒绝或业务 `pending` 行为（等待 API 执行器可用槽位）
 
 ## M4 审计
 1. 配置变更审计

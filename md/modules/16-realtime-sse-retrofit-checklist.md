@@ -5,14 +5,14 @@
 - 保持现有会话体系与前端交互不推翻，采用兼容增量改造。
 
 ## 范围
-- 后端：事件发布链路、SSE 接口、Redis fanout、幂等与补偿。
+- 后端：事件发布链路、SSE 接口、Mongo 增量拉取/变更订阅、幂等与补偿。
 - 前端：左侧全局摘要订阅、会话详情订阅、路由切换状态机。
 - 观测：SSE 双通道指标、告警、联调与回归。
 
 ## 非范围（MVP）
 - 不改 noVNC 协议。
 - 不改会话主实体与事件持久化主结构。
-- 不引入新消息中间件（继续 Redis）。
+- 不引入新消息中间件（继续使用 Mongo/Redis 既有组件）。
 
 ## 改造总原则
 1. 兼容优先：保留旧 `POST /sessions` SSE 作为过渡。
@@ -34,13 +34,17 @@
 
 ### B. 后端发布链路
 - [ ] 调度创建 `auto session` 时发布 `session_upsert`（摘要流）
-- [ ] worker 会话状态变化发布 `session_status_changed`
+- [ ] api 执行器会话状态变化发布 `session_status_changed`
 - [ ] 未读数变化发布 `session_unread_changed`
 - [ ] 详情事件按 `session_id` 推送到会话详情流
-- [ ] API 节点订阅 Redis 并 fanout 到在线 SSE 连接
+- [ ] API 节点基于 Mongo 增量拉取/变更订阅推送到在线 SSE 连接
+- [ ] 建立连接注册表：`session_id -> node_id + connection_id`（Redis + TTL）
+- [ ] api 执行器按 `session_id` 归属做定向推送，禁止全量广播
+- [ ] 前端重连后覆盖注册，确保事件迁移到新 API 节点
 
 验收：
 - 用户在线且不发 chat，自动任务触发后左侧可实时出现。
+- 多 API 节点下，事件仅推送到会话归属节点，无重复推送。
 
 ### C. 前端订阅状态机
 - [ ] 登录后建立 1 条全局摘要 SSE，页面生命周期内常驻
@@ -48,6 +52,7 @@
 - [ ] 路由切换/登出时正确清理连接
 - [ ] 按 `event_id` 去重，避免重复渲染
 - [ ] 摘要流只更新左侧，不误触发中间详情渲染
+- [ ] SSE 建连时上报 `session_id` 与连接标识，支持后端归属注册
 
 验收：
 - 全局摘要流 + 详情流并行运行无冲突、无串流。
@@ -61,7 +66,7 @@
 - 开关切换后页面功能可用，无白屏与死连接。
 
 ### D.1 WebSocket Forward 与 Sandbox 映射（新增，必须）
-- [ ] `worker` 创建/销毁/重建 sandbox 时，实时更新共享映射（Mongo 为真相源，Redis 可缓存）：
+- [ ] `api 执行器` 创建/销毁/重建 sandbox 时，实时更新共享映射（Mongo 为真相源，Redis 可缓存）：
   - `sessions.sandbox_id`
   - `sessions.sandbox_status`
   - `sessions.sandbox_ws_target`（或等价连接目标）
@@ -71,8 +76,8 @@
 - [ ] `api` 未查到可用映射时返回可识别错误（如 `SANDBOX_NOT_READY`），前端可重试。
 
 验收：
-- `api+worker` 分离部署下，任意 api 副本都能定位并转发到正确 sandbox。
-- worker 重启后，已有会话 noVNC 仍可通过共享映射恢复访问。
+- 多 `api` 副本部署下，任意 api 副本都能定位并转发到正确 sandbox。
+- api 执行器重启后，已有会话 noVNC 仍可通过共享映射恢复访问。
 
 ## P1（稳定性增强）
 
@@ -86,8 +91,8 @@
 
 ### F. 观测与告警
 - [ ] 指标拆分：`sse_global_*`、`sse_session_*`
-- [ ] 增加 `sse_fanout_queue_lag_ms`
-- [ ] 告警阈值落地（emit error、fanout lag）
+- [ ] 增加 `sse_push_lag_ms`
+- [ ] 告警阈值落地（emit error、push lag）
 - [ ] trace_id 贯通到 SSE 推送日志
 
 验收：
@@ -95,8 +100,8 @@
 
 ### G. 压测与容量
 - [ ] 压测在线用户 + 多 agent 并发调度场景
-- [ ] 验证 API 副本横向扩容后的 fanout 一致性
-- [ ] 验证 Redis pub/sub 峰值下延迟与丢包风险
+- [ ] 验证 API 副本横向扩容后的推送一致性
+- [ ] 验证 Mongo 增量流与 SSE 推送在峰值下的延迟与丢包风险
 
 验收：
 - 达到目标阈值（由压测报告给出）且无事件大面积丢失。

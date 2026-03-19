@@ -41,6 +41,9 @@ services:
       - "8000:8000"
       - "5678:5678" # Debug port
     depends_on:
+      gateway:
+        condition: service_started
+        required: false
       sandbox:
         condition: service_started
         required: false
@@ -57,11 +60,39 @@ services:
       - .env
     environment:
       - SANDBOX_ADDRESS=sandbox # Use single container as sandbox
+      - GATEWAY_BASE_URL=${GATEWAY_BASE_URL:-http://gateway:8100}
+      - GATEWAY_API_KEY=${GATEWAY_API_KEY:?GATEWAY_API_KEY is required}
+      - SANDBOX_INTERNAL_API_KEY=${SANDBOX_INTERNAL_API_KEY:?SANDBOX_INTERNAL_API_KEY is required}
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    command:
+      [
+        "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--reload"
+      ]
+    volumes:
+      - ./gateway:/app
+      - /app/__pycache__
+      - /app/.venv
+    expose:
+      - "8100"
+    env_file:
+      - .env
+    environment:
+      - GATEWAY_INTERNAL_API_KEY=${GATEWAY_INTERNAL_API_KEY:?GATEWAY_INTERNAL_API_KEY is required}
+    restart: unless-stopped
+    networks:
+      - manus-network
 
   sandbox:
     build:
       context: ./sandbox
       dockerfile: Dockerfile
+      args:
+        APT_MIRROR: ${SANDBOX_APT_MIRROR:-}
+        INSTALL_CJK_FONTS: ${SANDBOX_INSTALL_CJK_FONTS:-true}
     hostname: sandbox
     volumes:
       - ./sandbox:/app  # Mount source code directory
@@ -76,6 +107,7 @@ services:
     environment:
       - UVI_ARGS="--reload"
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - SANDBOX_INTERNAL_API_KEY=${SANDBOX_INTERNAL_API_KEY:?SANDBOX_INTERNAL_API_KEY is required}
     restart: unless-stopped
     networks:
       - manus-network

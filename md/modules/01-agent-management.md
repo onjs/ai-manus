@@ -25,7 +25,7 @@
   - 会话详情流（中间时间线按当前会话订阅）
 - 用户介入保留 ai-manus 语义：`session.status=waiting`（如登录/审批确认）。
 - 介入时若 sandbox 已销毁/不可用，自动新建并回绑当前会话。
-- 调度执行采用 `Celery Beat + Broker + Worker`，业务层保留 `pending`。
+- 调度执行采用 `Worker Beat + API内置执行器`，业务层保留 `pending`。
 - Agent loop 使用内部状态机（写 `run_meta`），保留 automaton 策略层（策略先决/统一工具入口/执行后治理），并支持每轮上限、超时、回合内重试与终止条件。
 - 上下文层采用 `planner + execution` 双层记忆，浏览器内容先剪裁再入 LLM。
 - 模型配置采用“配置中心”：

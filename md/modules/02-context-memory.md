@@ -19,7 +19,7 @@
   - 在原有 compact 基础上增加“分级压缩 + 锚点重组 + 完整性校验”。
 
 ## 存储分层（冻结）
-- `L0 运行内存（Worker进程）`
+- `L0 运行内存（API执行器进程）`
   - 当前回合工作集：系统提示词、最近 turns、待执行工具结果、临时推理状态。
   - 生命周期：单次运行期内。
 - `L1 Redis 热态`
@@ -159,7 +159,7 @@
   - `ctx:{session_id}:recent_event_refs`
 
 ## 恢复策略（冻结）
-- Worker 重启或任务恢复时：
+- API 执行器重启或任务恢复时：
   - 先读 `context_checkpoints` 最新快照。
   - 再补齐快照之后的 `session_events`。
   - 读取 `agent_memories.memories.planner/execution`。

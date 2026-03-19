@@ -56,6 +56,21 @@
 - API Schema：已合并到 01/04 模块
 - 开发任务：已合并到 01/04/05 模块
 
+11. `18 Gateway 与 Sandbox 集成`
+- 设计文档：有
+- API Schema：有
+- 开发任务：有
+
+12. `19 Gateway/Sandbox/Agent 代码改造图`
+- 设计文档：有（代码级改造路径）
+- API Schema：不适用（实现映射文档）
+- 开发任务：引用 14/18 模块
+
+13. `20 风险台账 + Ops 告警规则草案`
+- 设计文档：有（风险台账）
+- API Schema：不适用
+- 开发任务：有（05 模块 M5）
+
 ## 索引入口
 - API Schema 总目录：[/Users/zuos/code/github/ai-manus/md/modules/api-schema/README.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/README.md)
 - 开发任务总目录：[/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/README.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/README.md)

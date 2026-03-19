@@ -9,3 +9,5 @@
 - [07-config-release-rollback-dev-tasks.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/07-config-release-rollback-dev-tasks.md)
 - [08-skills-tool-runtime-dev-tasks.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/08-skills-tool-runtime-dev-tasks.md)
 - [17-browser-engine-dev-tasks.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/17-browser-engine-dev-tasks.md)
+- [18-gateway-dev-tasks.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/18-gateway-dev-tasks.md)
+- [21-runtime-event-protocol-dev-tasks.md](/Users/zuos/code/github/ai-manus/md/modules/dev-tasks/21-runtime-event-protocol-dev-tasks.md)

@@ -85,7 +85,8 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     session_id: str
     user_id: str  # User ID that owns this session
     sandbox_id: Optional[str] = None
-    openfang_agent_id: Optional[str] = None
+    gateway_token_id: Optional[str] = None
+    gateway_token_expire_at: Optional[int] = None
     agent_id: str
     task_id: Optional[str] = None
     title: Optional[str] = None

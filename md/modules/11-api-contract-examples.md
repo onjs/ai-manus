@@ -252,7 +252,7 @@
 }
 ```
 
-## 样例 8：调度触发记录（Celery 映射）
+## 样例 8：调度触发记录（API Executor 映射）
 `GET /scheduler/triggers?agent_id=agt_01&task_id=tsk_01&status=running`
 
 响应：
@@ -269,8 +269,8 @@
         "task_schedule_id":"sch_01",
         "session_id":"ses_01",
         "session_status":"running",
-        "celery_task_id":"cly_9f3e",
-        "queue":"agent.default",
+        "executor_run_id":"exe_9f3e",
+        "executor_node_id":"api-node-01",
         "started_at":"2026-03-15T09:10:00Z"
       }
     ]
@@ -292,9 +292,92 @@
     "repaired_count":3,
     "released_leases":2,
     "details":[
-      {"trigger_id":"trg_102","from_status":"queued","to_status":"pending","reason_code":"CELERY_TASK_LOST"},
-      {"trigger_id":"trg_108","from_status":"running","to_status":"finished","reason_code":"WORKER_STALE"}
+      {"trigger_id":"trg_102","from_status":"pending","to_status":"pending","reason_code":"EXECUTOR_LEASE_RETRY"},
+      {"trigger_id":"trg_108","from_status":"running","to_status":"finished","reason_code":"EXECUTOR_STALE"}
     ]
   }
+}
+```
+
+## 样例 10：Gateway 错误响应样例
+
+### 10.1 Token 过期
+`POST /internal/v1/llm/ask`
+
+```json
+{
+  "code":"GATEWAY_TOKEN_EXPIRED",
+  "msg":"token expired",
+  "data":{"retryable": false},
+  "trace_id":"trc_01"
+}
+```
+
+### 10.2 Scope 不足
+`POST /internal/v1/llm/stream`
+
+```json
+{
+  "code":"GATEWAY_SCOPE_DENIED",
+  "msg":"scope llm:stream required",
+  "data":{"retryable": false},
+  "trace_id":"trc_02"
+}
+```
+
+### 10.3 策略拦截
+`POST /internal/v1/llm/ask`
+
+```json
+{
+  "code":"GATEWAY_POLICY_BLOCKED",
+  "msg":"request blocked by policy",
+  "data":{
+    "retryable": false,
+    "policy_rule":"sensitive_action_v1"
+  },
+  "trace_id":"trc_03"
+}
+```
+
+### 10.4 限流触发
+`POST /internal/v1/llm/ask`
+
+```json
+{
+  "code":"GATEWAY_RATE_LIMITED",
+  "msg":"rate limit exceeded",
+  "data":{
+    "retryable": true,
+    "retry_after_seconds": 10
+  },
+  "trace_id":"trc_04"
+}
+```
+
+### 10.5 熔断窗口
+`POST /internal/v1/llm/ask`
+
+```json
+{
+  "code":"GATEWAY_CIRCUIT_OPEN",
+  "msg":"upstream circuit open",
+  "data":{
+    "retryable": true,
+    "retry_after_seconds": 30
+  },
+  "trace_id":"trc_05"
+}
+```
+
+### 10.6 上游超时
+`POST /internal/v1/llm/stream`
+
+```json
+{
+  "code":"GATEWAY_UPSTREAM_TIMEOUT",
+  "msg":"upstream model timeout",
+  "data":{"retryable": true},
+  "trace_id":"trc_06"
 }
 ```

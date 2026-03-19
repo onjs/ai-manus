@@ -1,7 +1,11 @@
-from pydantic import BaseModel
+import re
+
+from pydantic import BaseModel, model_validator
 from typing import Optional, List
 from app.interfaces.schemas.event import AgentSSEEvent
 from app.domain.models.session import SessionStatus
+
+STREAM_ID_PATTERN = re.compile(r"^\d+-\d+$")
 
 
 class ChatRequest(BaseModel):
@@ -10,6 +14,21 @@ class ChatRequest(BaseModel):
     message: Optional[str] = None
     attachments: Optional[List[dict]] = None
     event_id: Optional[str] = None
+    request_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_contract(self):
+        if self.event_id is not None:
+            self.event_id = self.event_id.strip()
+            if not STREAM_ID_PATTERN.match(self.event_id):
+                raise ValueError("event_id must be a valid stream id")
+
+        has_message = bool(self.message and self.message.strip())
+        if has_message:
+            if not self.request_id or not self.request_id.strip():
+                raise ValueError("request_id is required when message is provided")
+            self.request_id = self.request_id.strip()
+        return self
 
 
 class ShellViewRequest(BaseModel):

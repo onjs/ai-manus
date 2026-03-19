@@ -6,7 +6,7 @@
 
 ## 可选接口
 1. `GET /observability/overview`
-- 返回：核心 KPI（run_success_rate, celery_queue_depth, beat_lag_seconds, reconciler_repair_count, sandbox_fail_rate...）
+- 返回：核心 KPI（run_success_rate, trigger_pending_wait_p95, beat_lag_seconds, reconciler_repair_count, sandbox_fail_rate...）
 
 2. `GET /observability/alerts`
 - 查询：`level(P1|P2|P3), status(active|resolved), tenant_id`

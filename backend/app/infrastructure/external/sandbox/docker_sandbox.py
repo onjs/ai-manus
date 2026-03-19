@@ -1,5 +1,6 @@
-from typing import Dict, Any, Optional, List, BinaryIO
+from typing import Dict, Any, Optional, List, BinaryIO, AsyncGenerator
 import uuid
+import json
 import httpx
 import docker
 import socket
@@ -13,6 +14,7 @@ from app.domain.external.sandbox import Sandbox
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 from app.infrastructure.external.browser.browser_use_browser import BrowserUseBrowser
 from app.domain.external.browser import Browser
+from app.infrastructure.external.gateway.client import GatewayStreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,13 @@ class DockerSandbox(Sandbox):
     @property
     def vnc_url(self) -> str:
         return self._vnc_url
+
+    def _runtime_headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        settings = get_settings()
+        if settings.sandbox_internal_api_key:
+            headers["X-Internal-Key"] = settings.sandbox_internal_api_key
+        return headers
 
     @staticmethod
     def _get_container_ip(container) -> str:
@@ -100,7 +109,8 @@ class DockerSandbox(Sandbox):
                     "CHROME_ARGS": settings.sandbox_chrome_args,
                     "HTTPS_PROXY": settings.sandbox_https_proxy,
                     "HTTP_PROXY": settings.sandbox_http_proxy,
-                    "NO_PROXY": settings.sandbox_no_proxy
+                    "NO_PROXY": settings.sandbox_no_proxy,
+                    "SANDBOX_INTERNAL_API_KEY": settings.sandbox_internal_api_key,
                 }
             }
             
@@ -427,6 +437,127 @@ class DockerSandbox(Sandbox):
         # Return the response content as a BinaryIO stream
         # TODO: change to real stream
         return io.BytesIO(response.content)
+
+    async def runtime_configure_gateway(
+        self,
+        session_id: str,
+        gateway_base_url: str,
+        gateway_token: str,
+        gateway_token_id: str,
+        gateway_token_expire_at: int,
+        scopes: list[str],
+    ) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/runtime/config",
+            headers=self._runtime_headers(),
+            json={
+                "session_id": session_id,
+                "gateway_base_url": gateway_base_url,
+                "gateway_token": gateway_token,
+                "gateway_token_id": gateway_token_id,
+                "gateway_token_expire_at": gateway_token_expire_at,
+                "scopes": scopes,
+            },
+        )
+        return ToolResult(**response.json())
+
+    async def runtime_clear_gateway(self, session_id: str) -> ToolResult:
+        response = await self.client.delete(
+            f"{self.base_url}/api/v1/runtime/config/{session_id}",
+            headers=self._runtime_headers(),
+        )
+        return ToolResult(**response.json())
+
+    async def runtime_start_runner(
+        self,
+        session_id: str,
+        agent_id: str,
+        user_id: str,
+        sandbox_id: str,
+        message: str,
+    ) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/runtime/runs/start",
+            headers=self._runtime_headers(),
+            json={
+                "session_id": session_id,
+                "agent_id": agent_id,
+                "user_id": user_id,
+                "sandbox_id": sandbox_id,
+                "message": message,
+            },
+        )
+        return ToolResult(**response.json())
+
+    async def runtime_stream_runner_events(
+        self,
+        session_id: str,
+        from_seq: int = 1,
+        limit: int = 200,
+    ) -> AsyncGenerator[GatewayStreamEvent, None]:
+        async with self.client.stream(
+            "GET",
+            f"{self.base_url}/api/v1/runtime/runs/{session_id}/events/stream",
+            headers=self._runtime_headers(),
+            params={"from_seq": from_seq, "limit": limit},
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                detail = body.decode("utf-8", errors="ignore")
+                raise RuntimeError(
+                    f"Sandbox runtime runner stream failed: {response.status_code}, {detail}"
+                )
+
+            event_name: Optional[str] = None
+            data_lines: list[str] = []
+
+            async for raw_line in response.aiter_lines():
+                line = raw_line.strip()
+                if not line:
+                    if not event_name and not data_lines:
+                        continue
+                    if not event_name:
+                        raise RuntimeError("Sandbox runner stream missing event name")
+                    yield GatewayStreamEvent(
+                        event=event_name,
+                        data=self._parse_sse_data(data_lines),
+                    )
+                    event_name = None
+                    data_lines = []
+                    continue
+
+                if line.startswith(":"):
+                    continue
+                if line.startswith("event:"):
+                    event_name = line[len("event:") :].strip()
+                    continue
+                if line.startswith("data:"):
+                    data_lines.append(line[len("data:") :].strip())
+
+            if event_name or data_lines:
+                if not event_name:
+                    raise RuntimeError("Sandbox runner stream missing event name")
+                yield GatewayStreamEvent(
+                    event=event_name,
+                    data=self._parse_sse_data(data_lines),
+                )
+
+    async def runtime_cancel_runner(self, session_id: str) -> ToolResult:
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/runtime/runs/{session_id}/cancel",
+            headers=self._runtime_headers(),
+        )
+        return ToolResult(**response.json())
+
+    @staticmethod
+    def _parse_sse_data(data_lines: list[str]) -> Dict[str, Any]:
+        data_str = "\n".join(data_lines).strip()
+        if not data_str:
+            return {}
+        parsed = json.loads(data_str)
+        if not isinstance(parsed, dict):
+            raise ValueError("sandbox SSE data must be a JSON object")
+        return parsed
     
     @staticmethod
     @alru_cache(maxsize=128, typed=True)

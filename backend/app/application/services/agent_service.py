@@ -20,7 +20,7 @@ from app.domain.models.file import FileInfo
 from app.core.config import get_settings
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.models.session import SessionStatus
-from app.infrastructure.external.openfang.client import OpenFangClient
+from app.infrastructure.external.gateway.client import GatewayClient
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -35,9 +35,7 @@ class AgentService:
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
-        agent_runtime: str = "manus",
-        openfang_client: Optional[OpenFangClient] = None,
-        configured_openfang_agent_id: Optional[str] = None,
+        gateway_client: Optional[GatewayClient] = None,
     ):
         logger.info("Initializing AgentService")
         self._agent_repository = agent_repository
@@ -51,9 +49,7 @@ class AgentService:
             file_storage,
             mcp_repository,
             search_engine,
-            agent_runtime,
-            openfang_client,
-            configured_openfang_agent_id,
+            gateway_client,
         )
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
@@ -90,11 +86,20 @@ class AgentService:
         message: Optional[str] = None,
         timestamp: Optional[datetime] = None,
         event_id: Optional[str] = None,
+        request_id: Optional[str] = None,
         attachments: Optional[List[dict]] = None
     ) -> AsyncGenerator[AgentEvent, None]:
-        logger.info(f"Starting chat with session {session_id}: {message[:50]}...")
+        logger.info(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
         # Directly use the domain service's chat method, which will check if the session exists
-        async for event in self._agent_domain_service.chat(session_id, user_id, message, timestamp, event_id, attachments):
+        async for event in self._agent_domain_service.chat(
+            session_id,
+            user_id,
+            message,
+            timestamp,
+            event_id,
+            request_id,
+            attachments,
+        ):
             logger.debug(f"Received event: {event}")
             yield event
         logger.info(f"Chat with session {session_id} completed")

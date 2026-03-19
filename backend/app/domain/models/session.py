@@ -21,7 +21,8 @@ class Session(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     user_id: str  # User ID that owns this session
     sandbox_id: Optional[str] = Field(default=None)  # Identifier for the sandbox environment
-    openfang_agent_id: Optional[str] = Field(default=None)  # Bound OpenFang agent for this session
+    gateway_token_id: Optional[str] = Field(default=None)
+    gateway_token_expire_at: Optional[int] = Field(default=None)
     agent_id: str
     task_id: Optional[str] = None
     title: Optional[str] = None

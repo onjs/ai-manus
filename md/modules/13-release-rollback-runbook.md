@@ -14,17 +14,17 @@
 - 观察 15-30 分钟
 
 2. 灰度 50%
-- 观察错误率、Celery 队列延迟、sandbox 失败率
+- 观察错误率、调度等待延迟、sandbox 失败率
 
 3. 全量 100%
 - 固定发布版本，记录变更单
 
 ## 核心观测指标（门禁）
 1. `run_failed_rate_5m`
-2. `celery_queue_wait_p95`
+2. `trigger_pending_wait_p95`
 3. `sandbox_create_fail_rate_5m`
 4. `sse_emit_error_count_5m`
-5. `celery_worker_heartbeat_missing`
+5. `api_executor_heartbeat_missing`
 6. `beat_lag_seconds_p95`
 7. `reconciler_repair_count`
 

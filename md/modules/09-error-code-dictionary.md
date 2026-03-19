@@ -71,5 +71,18 @@
 4. `CONFIG_ROLLBACK_FAILED` -> 500 -> true
 5. `CONFIG_PUBLISHED_VERSION_MISSING` -> 409 -> false
 
+### I. Gateway（LLM 中转）
+1. `GATEWAY_TOKEN_INVALID` -> 401 -> false
+2. `GATEWAY_TOKEN_EXPIRED` -> 401 -> false
+3. `GATEWAY_TOKEN_REVOKED` -> 401 -> false
+4. `GATEWAY_SCOPE_DENIED` -> 403 -> false
+5. `GATEWAY_TENANT_MISMATCH` -> 403 -> false
+6. `GATEWAY_POLICY_BLOCKED` -> 403 -> false
+7. `GATEWAY_RATE_LIMITED` -> 429 -> true
+8. `GATEWAY_CIRCUIT_OPEN` -> 503 -> true
+9. `GATEWAY_PROVIDER_UNAVAILABLE` -> 503 -> true
+10. `GATEWAY_UPSTREAM_TIMEOUT` -> 504 -> true
+11. `GATEWAY_INTERNAL_ERROR` -> 500 -> true
+
 ## 备注
 - 首次开发阶段按本字典落实现；新增错误码必须补本文件。

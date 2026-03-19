@@ -134,9 +134,8 @@
   - `task_id`
   - `task_schedule_id`
   - `trigger_id`
-  - `celery_task_id`
-  - `queue_name`
-  - `worker_id(optional)`
+  - `executor_run_id`
+  - `api_node_id(optional)`
   - `dispatched_at`
 ## 事件/SSE 扩展
 - 兼容保留：旧 `POST /sessions` SSE 快照流继续可用。

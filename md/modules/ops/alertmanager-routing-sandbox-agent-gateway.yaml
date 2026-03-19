@@ -1,0 +1,112 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: platform-default
+  group_by: ["alertname", "severity", "env", "tenant_id", "agent_id"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  routes:
+    - matchers:
+        - severity="P1"
+      receiver: p1-platform-bridge
+      continue: true
+
+    - matchers:
+        - severity="P1"
+        - owner="Security"
+      receiver: p1-security-oncall
+
+    - matchers:
+        - severity="P1"
+        - owner="Gateway"
+      receiver: p1-gateway-oncall
+
+    - matchers:
+        - severity="P1"
+        - owner="Runtime"
+      receiver: p1-runtime-oncall
+
+    - matchers:
+        - severity="P2"
+      receiver: p2-owner-oncall
+      continue: true
+
+    - matchers:
+        - severity="P2"
+        - owner="Runtime"
+      receiver: p2-runtime-oncall
+
+    - matchers:
+        - severity="P2"
+        - owner="Gateway"
+      receiver: p2-gateway-oncall
+
+    - matchers:
+        - severity="P2"
+        - owner="QA"
+      receiver: p2-qa-oncall
+
+    - matchers:
+        - severity="P3"
+      receiver: p3-business-hours
+      mute_time_intervals:
+        - offhours
+
+receivers:
+  - name: platform-default
+    webhook_configs:
+      - url: "http://example.local/alerts/platform-default"
+
+  - name: p1-platform-bridge
+    webhook_configs:
+      - url: "http://example.local/alerts/p1-platform-bridge"
+
+  - name: p1-security-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p1-security-oncall"
+
+  - name: p1-gateway-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p1-gateway-oncall"
+
+  - name: p1-runtime-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p1-runtime-oncall"
+
+  - name: p2-owner-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p2-owner-oncall"
+
+  - name: p2-runtime-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p2-runtime-oncall"
+
+  - name: p2-gateway-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p2-gateway-oncall"
+
+  - name: p2-qa-oncall
+    webhook_configs:
+      - url: "http://example.local/alerts/p2-qa-oncall"
+
+  - name: p3-business-hours
+    webhook_configs:
+      - url: "http://example.local/alerts/p3-business-hours"
+
+time_intervals:
+  - name: offhours
+    time_intervals:
+      - weekdays: ["monday:friday"]
+        times:
+          - start_time: "00:00"
+            end_time: "09:00"
+          - start_time: "18:00"
+            end_time: "24:00"
+      - weekdays: ["saturday", "sunday"]
+        times:
+          - start_time: "00:00"
+            end_time: "24:00"
+
+templates: []

@@ -33,14 +33,10 @@ class Settings(BaseSettings):
     temperature: float = 0.7
     max_tokens: int = 2000
 
-    # Runtime configuration
-    agent_runtime: str = "manus"  # "manus" or "openfang"
-
-    # OpenFang bridge configuration
-    openfang_base_url: str | None = None
-    openfang_api_key: str | None = None
-    openfang_agent_id: str | None = None
-    openfang_template: str = "assistant"
+    # Gateway runtime configuration
+    gateway_base_url: str | None = None
+    gateway_api_key: str | None = None
+    gateway_timeout_seconds: float = 300.0
     
     # MongoDB configuration
     mongodb_uri: str = "mongodb://mongodb:27017"
@@ -56,6 +52,7 @@ class Settings(BaseSettings):
     
     # Sandbox configuration
     sandbox_address: str | None = None
+    sandbox_internal_api_key: str | None = None
     sandbox_image: str | None = None
     sandbox_name_prefix: str | None = None
     sandbox_ttl_minutes: int | None = 30
@@ -115,12 +112,12 @@ class Settings(BaseSettings):
         
     def validate(self):
         """Validate configuration settings"""
-        if self.agent_runtime == "openfang":
-            if not self.openfang_base_url:
-                raise ValueError("OPENFANG_BASE_URL is required when AGENT_RUNTIME=openfang")
-            return
-        if not self.api_key:
-            raise ValueError("API key is required")
+        if not self.gateway_base_url:
+            raise ValueError("GATEWAY_BASE_URL is required")
+        if not self.gateway_api_key:
+            raise ValueError("GATEWAY_API_KEY is required")
+        if not self.sandbox_internal_api_key:
+            raise ValueError("SANDBOX_INTERNAL_API_KEY is required")
 
 @lru_cache()
 def get_settings() -> Settings:

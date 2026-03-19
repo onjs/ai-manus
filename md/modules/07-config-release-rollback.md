@@ -134,7 +134,7 @@
 
 ## 7. 与执行/调度模块对齐
 - 调度器在创建会话时读取 `agents.published_version`。
-- worker 启动时把 `config_version_id/hash` 写入 `session.run_meta`。
+- api 执行器启动 run 时把 `config_version_id/hash` 写入 `session.run_meta`。
 - timeline 可展示“本次运行使用的配置版本”。
 
 ## 8. 验收标准

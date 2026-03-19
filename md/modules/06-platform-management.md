@@ -110,7 +110,7 @@
   - `max_storage_gb`（快照与产物）
 - 超限行为：
   - 创建类操作直接拒绝（4xx + 可读错误码）。
-  - 调度类操作保持业务 `pending`，等待 Celery 侧可用执行槽位，不强行丢弃。
+  - 调度类操作保持业务 `pending`，等待 API 执行器可用执行槽位，不强行丢弃。
 
 ## 5. API 设计（保持统一报文）
 - 统一响应：`APIResponse{code,msg,data}`

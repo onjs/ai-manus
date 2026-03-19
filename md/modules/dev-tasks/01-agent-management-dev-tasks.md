@@ -20,7 +20,7 @@
 ## M2.1 Agent Loop 契约对齐（新增）
 1. `GET /sessions`、`GET /sessions/{id}` 返回 `run_meta.loop`
 2. `run_meta.loop` 字段按冻结 schema 输出（`config_snapshot/counters/last_policy_decision`）
-3. 增加 `run_meta.dispatch`（`trigger_id/celery_task_id/queue_name`）并保持向后兼容
+3. 增加 `run_meta.dispatch`（`trigger_id/executor_run_id/api_node_id`）并保持向后兼容
 3.1 增加 `run_meta.dispatch.task_id/task_schedule_id` 便于追踪
 4. 保持向后兼容：旧客户端忽略新增字段不报错
 

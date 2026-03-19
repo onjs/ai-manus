@@ -14,9 +14,11 @@
 
 ## 核心原则（冻结）
 - `每次 Agent 自动运行 = 1 个 session + 1 个 sandbox`。
+- `agent runner` 在 sandbox 内执行，控制面只负责编排与状态收敛。
 - session 生命周期与 sandbox 生命周期解耦：
   - session 可长期保留用于回放与审计；
   - sandbox 在运行结束后自动销毁。
+- LLM 调用强制经 gateway 中转，runner 不直连模型厂商。
 - 会话入口支持 `auto + manual`：
   - `auto` 会话：调度触发创建运行态 sandbox。
   - `manual` 会话：按需创建 sandbox（首次使用 browser/file/shell 时创建）。
@@ -58,7 +60,7 @@
 - 调度触发创建自动会话（`source_type=auto`）。
 - 用户新建会话创建手动会话（`source_type=manual`）。
 2. sandbox 创建：
-- `auto` 会话在 Worker 开始执行时创建 sandbox。
+- `auto` 会话在 API 执行器开始执行时创建 sandbox。
 - `manual` 会话在首次使用 browser/file/shell 时按需创建 sandbox。
 3. Agent 在 sandbox 内执行 Browser/File/Shell 工具。
 4. 事件与快照实时写入后端并推送前端。
@@ -69,7 +71,7 @@
 ## 取消与超时销毁规则（冻结）
 - 会话取消：
   - `pending` 会话取消：不创建 sandbox，直接结束。
-  - `running` 会话取消：立即取消 worker 并触发 sandbox 销毁，记录取消原因事件。
+  - `running` 会话取消：立即取消 API 执行器任务并触发 sandbox 销毁，记录取消原因事件。
 - 等待人工超时销毁：
   - 当会话进入 `waiting`，sandbox 只保留有限时间窗口用于用户接管。
   - 默认 `WAITING_SANDBOX_IDLE_TIMEOUT_MINUTES=30`，超时后自动销毁 sandbox。
@@ -103,6 +105,11 @@
 - 历史回放只读 `Mongo + GridFS`，禁止回放阶段依赖在线 sandbox。
 - shell/file 大输出统一 `artifact_ref` 化，配合事件流压缩策略。
 
+7. gateway 地址下发
+- 创建 sandbox 时由控制面动态下发 `GATEWAY_BASE_URL` 与短时 `GATEWAY_TOKEN`。
+- runner 仅使用下发配置，禁止会话消息覆盖 gateway 地址。
+- sandbox 重建时必须重新下发最新地址和新 token。
+
 ## P1 改造清单（稳定性增强）
 1. 断线重连
 - noVNC 连接断开后支持会话内重连，不影响后台执行。
@@ -114,10 +121,10 @@
 - 增加每租户 sandbox 上限与排队策略，避免资源被单租户耗尽。
 
 ## 实时链路（冻结）
-- `事件流`：sandbox/worker -> backend -> frontend（SSE）。
+- `事件流`：sandbox/api_executor -> backend -> frontend（SSE）。
 - `实时桌面`：frontend -> sandbox（noVNC/WebSocket），backend 负责鉴权与会话映射。
-- `api+worker` 分离映射规则（新增）：
-  - `worker` 负责创建/销毁/重建 sandbox，并把 `session_id -> sandbox` 映射写入共享存储（Mongo，Redis可缓存）。
+- `api` 内置执行器映射规则（新增）：
+  - `api executor` 负责创建/销毁/重建 sandbox，并把 `session_id -> sandbox` 映射写入共享存储（Mongo，Redis可缓存）。
   - `api` WebSocket Forward 只按 `session_id` 查询共享映射，不依赖进程内存。
   - sandbox 重建必须原子更新映射并发 `sandbox_recreated` 事件。
 - 前端展示策略：
@@ -155,6 +162,12 @@
 - 普通用户仅可查看被授权 Agent 的会话与回放。
 - 手动接管（human-in-the-loop）写审计事件：
   - 接管人、时间、操作类型、恢复时间。
+- 网络策略按进程区分：
+  - 浏览器进程允许访问外部业务网站。
+  - runner/脚本进程仅允许访问内部 gateway，禁止直连模型厂商域名。
+- 凭证策略：
+  - sandbox 不保存厂商 API Key。
+  - runner 仅持有短时 token，run 结束后立即吊销。
 
 ## 兼容性约束（冻结）
 - 保持现有会话主实体与 API 兼容，不引入 `agent_runs` 主列表。

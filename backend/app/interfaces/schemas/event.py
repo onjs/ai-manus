@@ -90,11 +90,24 @@ class ToolSSEEvent(BaseSSEEvent):
     data: ToolEventData
 
     @classmethod
+    def _is_direct_screenshot_url(cls, value: str) -> bool:
+        lowered = value.lower()
+        return (
+            lowered.startswith("http://")
+            or lowered.startswith("https://")
+            or lowered.startswith("data:image/")
+            or lowered.startswith("/")
+        )
+
+    @classmethod
     async def from_event_async(cls, event: ToolEvent) -> Self:
         content = event.tool_content
         if isinstance(content, BrowserToolContent):
-            from app.interfaces.dependencies import get_file_service
-            content = BrowserToolContent(screenshot=await get_file_service().create_signed_url(content.screenshot))
+            screenshot = content.screenshot
+            if isinstance(screenshot, str) and screenshot.strip() and not cls._is_direct_screenshot_url(screenshot):
+                from app.interfaces.dependencies import get_file_service
+                screenshot = await get_file_service().create_signed_url(screenshot)
+            content = BrowserToolContent(screenshot=screenshot)
         return cls(
             data=ToolEventData(
                 **BaseEventData.base_event_data(event),
@@ -124,6 +137,10 @@ class StepEventData(BaseEventData):
     status: ExecutionStatus
     id: str
     description: str
+    blocked_reason: Optional[str] = None
+    success: Optional[bool] = None
+    result: Optional[str] = None
+    error: Optional[str] = None
 
 class StepSSEEvent(BaseSSEEvent):
     event: Literal["step"] = "step"
@@ -136,7 +153,11 @@ class StepSSEEvent(BaseSSEEvent):
                 **BaseEventData.base_event_data(event),
                 status=event.step.status,
                 id=event.step.id,
-                description=event.step.description
+                description=event.step.description,
+                blocked_reason=event.step.blocked_reason,
+                success=event.step.success,
+                result=event.step.result,
+                error=event.step.error,
             )
         )
 
@@ -163,7 +184,11 @@ class PlanSSEEvent(BaseSSEEvent):
                     **BaseEventData.base_event_data(event),
                     status=step.status,
                     id=step.id, 
-                    description=step.description
+                    description=step.description,
+                    blocked_reason=step.blocked_reason,
+                    success=step.success,
+                    result=step.result,
+                    error=step.error,
                 ) for step in event.plan.steps]
             )
         )

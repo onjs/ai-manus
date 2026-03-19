@@ -144,6 +144,7 @@ async def chat(
             message=request.message,
             timestamp=datetime.fromtimestamp(request.timestamp) if request.timestamp else None,
             event_id=request.event_id,
+            request_id=request.request_id,
             attachments=request.attachments
         ):
             logger.debug(f"Received event from chat: {event}")

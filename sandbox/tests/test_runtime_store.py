@@ -1,0 +1,51 @@
+from app.services.runtime_store import RuntimeStore
+
+
+def test_runtime_store_gateway_credentials_and_runs(tmp_path):
+    db_path = str(tmp_path / "runtime.db")
+    store = RuntimeStore(db_path=db_path)
+
+    store.set_gateway_credential(
+        session_id="s1",
+        gateway_base_url="http://gateway:8100",
+        gateway_token="token",
+        gateway_token_id="tid",
+        gateway_token_expire_at=9999999999,
+        scopes=["llm:stream"],
+    )
+    assert store.has_gateway_credential("s1") is True
+    cred = store.get_gateway_credential("s1")
+    assert cred is not None
+    assert cred["gateway_token_id"] == "tid"
+
+    run = store.upsert_run(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        status="starting",
+        message="hello",
+        reset_events=True,
+    )
+    assert run["status"] == "starting"
+    assert run["next_seq"] == 1
+
+    seq1 = store.append_event("s1", "message", {"role": "assistant", "message": "a"})
+    seq2 = store.append_event("s1", "done", {})
+    assert seq1 == 1
+    assert seq2 == 2
+
+    events = store.get_events("s1", from_seq=1, limit=10)
+    assert [e["event"] for e in events] == ["message", "done"]
+
+    cmd_id = store.enqueue_command("s1", "start", {"session_id": "s1"})
+    assert cmd_id > 0
+    pending = store.get_pending_commands(limit=10)
+    assert len(pending) == 1
+    assert pending[0]["command_type"] == "start"
+
+    store.mark_command_done(cmd_id)
+    pending_after = store.get_pending_commands(limit=10)
+    assert pending_after == []
+
+    assert store.clear_gateway_credential("s1") is True
+    assert store.has_gateway_credential("s1") is False

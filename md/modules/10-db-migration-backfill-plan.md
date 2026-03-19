@@ -6,7 +6,7 @@
 
 ## 范围
 - Mongo：新增集合、字段、索引。
-- Redis：接入 Celery broker/result backend 与并发控制键空间。
+- Redis：接入调度锁、并发控制、token 状态与热态键空间。
 
 ## 迁移步骤（建议）
 ### Phase 0 预检
@@ -54,11 +54,16 @@
    - `(tenant_id, agent_id, task_id, idempotency_key)` unique
 
 ## Redis 键空间
-- Celery 队列键（由 Celery 管理，按环境前缀区分）
+- 调度与执行控制键（按环境前缀区分）
+  - `beat:leader:lock`
+  - `exec:lease:{trigger_id}`
 - 并发控制键（建议）
   - `conc:global:running`
   - `conc:tenant:{tenant_id}:running`
   - `conc:agent:{agent_id}:running`
+- gateway token 键（建议）
+  - `gw:token:active:{jti}`
+  - `gw:token:revoked:{jti}`
 - 上下文热态键
   - `ctx:{session_id}:*`
 

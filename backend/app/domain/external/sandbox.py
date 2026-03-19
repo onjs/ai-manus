@@ -1,4 +1,4 @@
-from typing import Any, Optional, Protocol, BinaryIO
+from typing import Any, Optional, Protocol, BinaryIO, AsyncGenerator
 from app.domain.models.tool_result import ToolResult
 from app.domain.external.browser import Browser
 
@@ -293,4 +293,44 @@ class Sandbox(Protocol):
         Returns:
             Sandbox instance
         """
+        ...
+
+    async def runtime_configure_gateway(
+        self,
+        session_id: str,
+        gateway_base_url: str,
+        gateway_token: str,
+        gateway_token_id: str,
+        gateway_token_expire_at: int,
+        scopes: list[str],
+    ) -> ToolResult:
+        """Configure gateway runtime credentials for a sandbox session."""
+        ...
+
+    async def runtime_clear_gateway(self, session_id: str) -> ToolResult:
+        """Clear gateway runtime credentials for a sandbox session."""
+        ...
+
+    async def runtime_start_runner(
+        self,
+        session_id: str,
+        agent_id: str,
+        user_id: str,
+        sandbox_id: str,
+        message: str,
+    ) -> ToolResult:
+        """Start sandbox-hosted runtime runner."""
+        ...
+
+    async def runtime_stream_runner_events(
+        self,
+        session_id: str,
+        from_seq: int = 1,
+        limit: int = 200,
+    ) -> AsyncGenerator[Any, None]:
+        """Stream sandbox-hosted runtime runner events through SSE."""
+        ...
+
+    async def runtime_cancel_runner(self, session_id: str) -> ToolResult:
+        """Cancel sandbox-hosted runtime runner."""
         ...

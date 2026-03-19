@@ -23,12 +23,19 @@
           <div class="max-h-[min(calc(100vh-360px),400px)] overflow-y-auto">
             <div v-for="step in plan.steps" :key="step.id"
               class="flex items-start gap-2.5 w-full px-4 py-2 truncate">
-              <StepSuccessIcon v-if="step.status === 'completed'" />
+              <StepSuccessIcon v-if="step.status === 'completed' && !step.blocked_reason" />
+              <AlertCircle v-else-if="step.blocked_reason" class="relative top-[2px] flex-shrink-0 text-[var(--text-warning)]" :size="16" />
               <Clock v-else class="relative top-[2px] flex-shrink-0" :size="16" />
               <div class="flex flex-col w-full gap-[2px] truncate">
                 <div class="text-sm truncate" :title="step.description"
                   style="color: var(--text-primary);">
                   {{ step.description }}
+                </div>
+                <div
+                  v-if="step.blocked_reason"
+                  class="text-xs truncate"
+                  style="color: var(--text-warning);">
+                  {{ formatBlockedReason(step.blocked_reason) }}
                 </div>
               </div>
             </div>
@@ -43,10 +50,17 @@
           <div class="w-full">
             <div class="flex items-start gap-2.5 w-full px-4 py-2 truncate">
               <StepSuccessIcon v-if="isCompleted" />
+              <AlertCircle v-else-if="currentBlockedReason" class="relative top-[2px] flex-shrink-0 text-[var(--text-warning)]" :size="16" />
               <Clock v-else class="relative top-[2px] flex-shrink-0" :size="16" />
               <div class="flex flex-col w-full gap-[2px] truncate">
                 <div class="text-sm truncate" :title="currentStep" style="color: var(--text-tertiary);">
                   {{ currentStep }}
+                </div>
+                <div
+                  v-if="currentBlockedReason"
+                  class="text-xs truncate"
+                  style="color: var(--text-warning);">
+                  {{ formatBlockedReason(currentBlockedReason) }}
                 </div>
               </div>
             </div>
@@ -65,7 +79,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ChevronUp, ChevronDown, Clock } from 'lucide-vue-next';
+import { ChevronUp, ChevronDown, Clock, AlertCircle } from 'lucide-vue-next';
 import StepSuccessIcon from './icons/StepSuccessIcon.vue';
 import type { PlanEventData } from '../types/event';
 
@@ -89,17 +103,49 @@ const planProgress = computed((): string => {
 });
 
 const isCompleted = computed((): boolean => {
-  return props.plan?.steps.every(step => step.status === 'completed') ?? false;
+  const steps = props.plan?.steps ?? [];
+  if (steps.length === 0) return false;
+  return steps.every(step => step.status === 'completed' && !step.blocked_reason);
+});
+
+const currentBlockedReason = computed((): string => {
+  const steps = props.plan?.steps ?? [];
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    if (steps[i].blocked_reason) {
+      return steps[i].blocked_reason as string;
+    }
+  }
+  return '';
 });
 
 const currentStep = computed((): string => {
-  for (const step of props.plan?.steps ?? []) {
+  const steps = props.plan?.steps ?? [];
+  for (const step of steps) {
     if (step.status === 'running' || step.status === 'pending') {
       return step.description;
     }
   }
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    if (steps[i].blocked_reason) {
+      return steps[i].description || t('Task Blocked');
+    }
+  }
   return t('Task Completed');
 });
+
+const formatBlockedReason = (reason: string): string => {
+  const map: Record<string, string> = {
+    login_required: '需要登录后继续',
+    captcha_required: '需要验证码/人机验证',
+    permission_denied: '权限不足',
+    rate_limited: '触发频率限制',
+    system_unavailable: '系统暂不可用',
+    missing_prerequisite: '缺少前置条件',
+    manual_confirmation_required: '需要人工确认',
+    unknown_blocked: '流程被阻塞',
+  };
+  return map[reason] || reason;
+};
 </script>
 
 <style scoped>

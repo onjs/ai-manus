@@ -5,7 +5,7 @@
 
 ## A. 核心联调链路
 1. 调度触发链路
-- `task_schedule -> trigger -> session(auto) -> celery_task -> worker -> sandbox`
+- `task_schedule -> trigger -> session(auto) -> api_executor -> sandbox`
 - 预期：左侧会话入组、时间线更新、noVNC 可看
 
 1.1 在线自动触发可见性
@@ -62,7 +62,7 @@
 - sessions 列表、timeline、回放接口 p95
 2. 稳定性
 - 随机 kill sandbox 后恢复成功率
-- 随机 kill worker 后对账收敛成功率
+- 随机 kill api executor 进程后对账收敛成功率
 3. 观测
 - trace_id/span_id 贯通
 

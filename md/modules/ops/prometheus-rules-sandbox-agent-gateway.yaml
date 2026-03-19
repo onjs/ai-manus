@@ -1,0 +1,121 @@
+groups:
+  - name: sandbox-agent-gateway-risk-rules
+    interval: 30s
+    rules:
+      - alert: ALERT_RUNNER_DIRECT_PROVIDER_EGRESS
+        expr: sum by (env, tenant_id, agent_id) (increase(runner_direct_provider_egress_count[5m])) > 0
+        for: 0m
+        labels:
+          severity: P1
+          module: sandbox-agent-gateway
+          owner: Security
+          backup_owner: Runtime
+          risk_id: R-01
+        annotations:
+          summary: "Runner detected direct egress to model providers"
+          description: "Runner must only call internal gateway. Block egress and revoke active run token immediately."
+
+      - alert: ALERT_GATEWAY_REVOKED_TOKEN_ACCEPTED
+        expr: |
+          sum by (env) (increase(gateway_token_revoked_but_accepted_count[5m])) > 0
+          or
+          histogram_quantile(0.95, sum by (le, env) (rate(token_revoke_propagation_ms_bucket[5m]))) > 1000
+        for: 0m
+        labels:
+          severity: P1
+          module: sandbox-agent-gateway
+          owner: Gateway
+          backup_owner: Security
+          risk_id: R-02
+        annotations:
+          summary: "Gateway accepted revoked token or revoke propagation is too slow"
+          description: "Reduce token TTL and enforce jti blacklist first, then rotate token for impacted sessions."
+
+      - alert: ALERT_GATEWAY_GLOBAL_DEGRADED
+        expr: |
+          (
+            (
+              sum by (env) (rate(gateway_request_total{status_class="5xx"}[5m]))
+              /
+              clamp_min(sum by (env) (rate(gateway_request_total[5m])), 1)
+            ) > 0.05
+            and sum by (env) (rate(gateway_request_total[5m])) > 1
+          )
+          or
+          histogram_quantile(0.95, sum by (le, env) (rate(gateway_request_latency_ms_bucket[5m]))) > 3000
+        for: 5m
+        labels:
+          severity: P1
+          module: sandbox-agent-gateway
+          owner: Gateway
+          backup_owner: Runtime
+          risk_id: R-03
+        annotations:
+          summary: "Gateway is globally degraded (5xx or high latency)"
+          description: "Scale gateway and enable degraded routing. Pause low-priority runs to protect core sessions."
+
+      - alert: ALERT_RUN_PROGRESS_STALLED
+        expr: |
+          (
+            max by (env, tenant_id, agent_id, session_id) (max_over_time(run_no_progress_seconds[3m])) > 60
+            and on (env, tenant_id, agent_id)
+            max by (env, tenant_id, agent_id) (step_duration_ms_p95)
+              > (max by (env, tenant_id, agent_id) (step_duration_ms_baseline_p95) * 1.3)
+          )
+          or
+          max by (env, tenant_id, agent_id, session_id) (max_over_time(run_no_progress_seconds[3m])) > 180
+        for: 3m
+        labels:
+          severity: P2
+          module: sandbox-agent-gateway
+          owner: Runtime
+          backup_owner: Gateway
+          risk_id: R-04
+        annotations:
+          summary: "Run progress stalled"
+          description: "Switch to stream-first policy and reduce per-round token budget. Inspect trace for bottleneck."
+
+      - alert: ALERT_RUNNER_HEARTBEAT_LOST
+        expr: |
+          max by (env, tenant_id, agent_id, session_id) (max_over_time(runner_heartbeat_gap_seconds[2m])) > 30
+          or
+          max by (env, tenant_id, agent_id) (zombie_runner_count) > 0
+        for: 1m
+        labels:
+          severity: P2
+          module: sandbox-agent-gateway
+          owner: Runtime
+          backup_owner: Scheduler
+          risk_id: R-05
+        annotations:
+          summary: "Runner heartbeat lost or zombie runner found"
+          description: "Use supervisor to restart/kill runner and release execution lease immediately."
+
+      - alert: ALERT_SECRET_LEAK_DETECTED
+        expr: sum by (env, service) (increase(secret_leak_detected_count[5m])) > 0
+        for: 0m
+        labels:
+          severity: P1
+          module: sandbox-agent-gateway
+          owner: Security
+          backup_owner: Gateway
+          risk_id: R-06
+        annotations:
+          summary: "Secret leakage signal detected"
+          description: "Rotate exposed keys immediately, isolate affected instances, and preserve forensic evidence."
+
+      - alert: ALERT_EXECUTION_COMPAT_REGRESSION
+        expr: |
+          sum by (env) (increase(session_event_schema_error_count[10m])) > 0
+          or
+          max by (env) (max_over_time(regression_suite_failed_ratio[10m])) > 0
+        for: 2m
+        labels:
+          severity: P2
+          module: sandbox-agent-gateway
+          owner: Runtime
+          backup_owner: QA
+          risk_id: R-07
+        annotations:
+          summary: "Execution compatibility regression detected"
+          description: "Switch executor mode back to legacy, stop rollout, and replay failed sessions for diagnosis."

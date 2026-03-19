@@ -5,7 +5,7 @@ from fastapi import Request, Header, HTTPException, status, Depends, Query
 from starlette.websockets import WebSocket
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.infrastructure.external.file.gridfsfile import get_file_storage
-from app.infrastructure.external.openfang import get_openfang_client
+from app.infrastructure.external.gateway import get_gateway_client
 from app.infrastructure.external.search import get_search_engine
 from app.domain.models.user import User, UserRole
 from app.application.errors.exceptions import UnauthorizedError
@@ -52,8 +52,7 @@ def get_agent_service() -> AgentService:
     file_storage = get_file_storage()
     search_engine = get_search_engine()
     mcp_repository = FileMCPRepository()
-    settings = get_settings()
-    openfang_client = get_openfang_client()
+    gateway_client = get_gateway_client()
     
     # Create AgentService instance
     return AgentService(
@@ -64,9 +63,7 @@ def get_agent_service() -> AgentService:
         file_storage=file_storage,
         search_engine=search_engine,
         mcp_repository=mcp_repository,
-        agent_runtime=settings.agent_runtime,
-        openfang_client=openfang_client,
-        configured_openfang_agent_id=settings.openfang_agent_id,
+        gateway_client=gateway_client,
     )
 
 

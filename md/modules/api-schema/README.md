@@ -9,3 +9,5 @@
 - [07-config-release-rollback-api-schema.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/07-config-release-rollback-api-schema.md)
 - [08-skills-tool-runtime-api-schema.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/08-skills-tool-runtime-api-schema.md)
 - [17-browser-engine-api-schema.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/17-browser-engine-api-schema.md)
+- [18-gateway-api-schema.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/18-gateway-api-schema.md)
+- [21-runtime-event-protocol-api-schema.md](/Users/zuos/code/github/ai-manus/md/modules/api-schema/21-runtime-event-protocol-api-schema.md)
