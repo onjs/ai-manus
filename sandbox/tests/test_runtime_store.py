@@ -62,3 +62,23 @@ def test_runtime_store_gateway_credentials_and_runs(tmp_path):
 
     assert store.clear_gateway_credential("s1") is True
     assert store.has_gateway_credential("s1") is False
+
+
+def test_runtime_store_purges_legacy_plaintext_gateway_tokens(tmp_path):
+    db_path = str(tmp_path / "runtime_legacy.db")
+    store = RuntimeStore(db_path=db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO gateway_credentials(
+                session_id, gateway_base_url, gateway_token, gateway_token_id,
+                gateway_token_expire_at, scopes_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("legacy-s1", "http://gateway:8100", "plaintext-token", "tid", 9999999999, "[]", 1),
+        )
+
+    # Re-open store to trigger bootstrap cleanup.
+    refreshed = RuntimeStore(db_path=db_path)
+    assert refreshed.has_gateway_credential("legacy-s1") is False

@@ -89,6 +89,9 @@ class RuntimeStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_commands_status_id ON commands(status, id)"
             )
+            conn.execute(
+                "DELETE FROM gateway_credentials WHERE gateway_token NOT LIKE 'enc:v1:%'"
+            )
 
     def set_gateway_credential(
         self,
