@@ -42,12 +42,19 @@ class FakeSessionRepository:
 
 class FakeSandbox:
     instances = {}
+    fail_get = set()
 
     def __init__(self, sandbox_id: str = "sandbox-1"):
         self.id = sandbox_id
+        self.ready = False
+
+    async def ensure_sandbox(self):
+        self.ready = True
 
     @classmethod
     async def get(cls, sandbox_id: str):
+        if sandbox_id in cls.fail_get:
+            raise RuntimeError("sandbox unavailable")
         return cls.instances.get(sandbox_id)
 
     @classmethod
@@ -86,6 +93,8 @@ async def test_gateway_runtime_create_task_creates_sandbox_and_binds_task(monkey
     from app.domain.services.runtime import gateway as gateway_runtime_module
 
     monkeypatch.setattr(gateway_runtime_module, "GatewayTaskRunner", DummyRunner)
+    FakeSandbox.instances = {}
+    FakeSandbox.fail_get = set()
 
     session_repository = FakeSessionRepository()
     runtime = GatewayAgentRuntime(
@@ -102,3 +111,29 @@ async def test_gateway_runtime_create_task_creates_sandbox_and_binds_task(monkey
     assert session.sandbox_id == "sandbox-new"
     assert session.task_id == "task-1"
     assert session_repository.saved_sessions.count("s3") >= 2
+
+
+@pytest.mark.asyncio
+async def test_gateway_runtime_recreates_sandbox_when_existing_unavailable(monkeypatch):
+    from app.domain.services.runtime import gateway as gateway_runtime_module
+
+    monkeypatch.setattr(gateway_runtime_module, "GatewayTaskRunner", DummyRunner)
+
+    FakeSandbox.instances = {}
+    FakeSandbox.fail_get = {"sandbox-old"}
+
+    session_repository = FakeSessionRepository()
+    runtime = GatewayAgentRuntime(
+        task_cls=FakeTask,
+        sandbox_cls=FakeSandbox,
+        session_repository=session_repository,
+        gateway_client=SimpleNamespace(),
+    )
+    session = Session(id="s4", user_id="u1", agent_id="a1", sandbox_id="sandbox-old")
+
+    task = await runtime.create_task(session)
+
+    assert task.id == "task-1"
+    assert session.sandbox_id == "sandbox-new"
+    assert session.task_id == "task-1"
+    assert session_repository.saved_sessions.count("s4") >= 2

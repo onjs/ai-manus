@@ -27,10 +27,15 @@ class GatewayAgentRuntime(AgentRuntime):
     async def _ensure_sandbox(self, session: Session) -> Sandbox:
         sandbox = None
         if session.sandbox_id:
-            sandbox = await self._sandbox_cls.get(session.sandbox_id)
+            try:
+                sandbox = await self._sandbox_cls.get(session.sandbox_id)
+                await sandbox.ensure_sandbox()
+            except Exception:
+                sandbox = None
 
         if not sandbox:
             sandbox = await self._sandbox_cls.create()
+            await sandbox.ensure_sandbox()
             session.sandbox_id = sandbox.id
             await self._session_repository.save(session)
 
