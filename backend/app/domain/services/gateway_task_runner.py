@@ -222,6 +222,9 @@ class GatewayTaskRunner(TaskRunner):
             return None
 
         if tool_name == "file":
+            content_from_args = function_args.get("content")
+            if isinstance(content_from_args, str):
+                return FileToolContent(content=content_from_args)
             if isinstance(payload, dict):
                 content = payload.get("content")
                 if isinstance(content, str):

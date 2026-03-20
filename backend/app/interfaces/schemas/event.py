@@ -4,7 +4,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from app.domain.models.plan import ExecutionStatus, Step
 from app.interfaces.schemas.file import FileInfoResponse
-from app.domain.models.event import ToolStatus, ToolContent, BrowserToolContent, ShellToolContent
+from app.domain.models.event import ToolStatus, ToolContent, BrowserToolContent, ShellToolContent, FileToolContent
 from app.domain.models.event import (
     AgentEvent,
     ErrorEvent,
@@ -125,6 +125,17 @@ class ToolSSEEvent(BaseSSEEvent):
                             }
                         ]
                     )
+        if content is None and event.tool_name == "file":
+            function_args = event.function_args or {}
+            content_from_args = function_args.get("content")
+            if isinstance(content_from_args, str):
+                content = FileToolContent(content=content_from_args)
+            else:
+                payload = cls._extract_result_payload(event.function_result)
+                if isinstance(payload, dict):
+                    content_from_result = payload.get("content")
+                    if isinstance(content_from_result, str):
+                        content = FileToolContent(content=content_from_result)
         if isinstance(content, BrowserToolContent):
             screenshot = content.screenshot
             if isinstance(screenshot, str) and screenshot.strip() and not cls._is_direct_screenshot_url(screenshot):
