@@ -124,6 +124,22 @@ class BrowserToolkit(BaseToolkit):
         self.browser = RuntimeBrowserAdapter()
         self.browser_engine = BrowserEngine(self.browser, model_kwargs=model_kwargs)
 
+    async def capture_event_snapshot(self) -> Optional[str]:
+        """Capture lightweight browser snapshot for tool event replay UI."""
+        result = await runtime_browser_service.execute(
+            function_name="browser_screenshot_data_url",
+            function_args={"full_page": False},
+        )
+        if not result.get("success"):
+            return None
+        data = result.get("data")
+        if not isinstance(data, dict):
+            return None
+        screenshot = data.get("screenshot")
+        if isinstance(screenshot, str) and screenshot.strip():
+            return screenshot
+        return None
+
     @tool(parse_docstring=True)
     async def browser_view(self) -> ToolResult:
         """View content of the current browser page. Use for checking the latest state of previously opened pages.

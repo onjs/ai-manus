@@ -8,6 +8,7 @@ from app.domain.models.message import Message
 from app.domain.services.tools.base import BaseToolkit
 from app.domain.models.event import (
     BaseEvent,
+    BrowserToolContent,
     ToolEvent,
     ToolStatus,
     ErrorEvent,
@@ -198,6 +199,17 @@ class BaseAgent(ABC):
                 )
 
                 tool_result = await self.invoke_tool(tool, tool_call)
+                tool_content = None
+                if tool.toolkit.name == "browser":
+                    capture_snapshot = getattr(tool.toolkit, "capture_event_snapshot", None)
+                    if callable(capture_snapshot):
+                        try:
+                            screenshot = await capture_snapshot()
+                            if isinstance(screenshot, str) and screenshot.strip():
+                                tool_content = BrowserToolContent(screenshot=screenshot)
+                        except Exception:
+                            # Snapshot failure must not affect the browser action result itself.
+                            logger.debug("Failed to capture browser snapshot for tool event", exc_info=True)
 
                 # Generate event after tool call
                 yield ToolEvent(
@@ -206,6 +218,7 @@ class BaseAgent(ABC):
                     tool_name=tool.toolkit.name,
                     function_name=function_name,
                     function_args=function_args,
+                    tool_content=tool_content,
                     function_result=tool_result.artifact
                 )
 

@@ -116,6 +116,8 @@ class RuntimeBrowserService:
                     return await self._console_view(max_lines=args.get("max_lines"))
                 if fn == "browser_screenshot":
                     return await self._screenshot(full_page=bool(args.get("full_page", False)))
+                if fn == "browser_screenshot_data_url":
+                    return await self._screenshot_data_url(full_page=bool(args.get("full_page", False)))
 
                 return {
                     "success": False,
@@ -190,6 +192,34 @@ class RuntimeBrowserService:
         if not isinstance(base64_data, str) or not base64_data:
             raise RuntimeError("captureScreenshot returned empty data")
         return base64.b64decode(base64_data)
+
+    async def _capture_screenshot_data_url(self, cdp: _CDPSession, full_page: bool = False) -> str:
+        if full_page:
+            metrics = await cdp.call("Page.getLayoutMetrics")
+            content_size = metrics.get("contentSize", {}) if isinstance(metrics, dict) else {}
+            width = int(content_size.get("width", 0) or 0)
+            height = int(content_size.get("height", 0) or 0)
+            if width > 0 and height > 0:
+                await cdp.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    {
+                        "mobile": False,
+                        "width": width,
+                        "height": height,
+                        "deviceScaleFactor": 1,
+                    },
+                )
+        result = await cdp.call(
+            "Page.captureScreenshot",
+            {
+                "format": "jpeg",
+                "quality": 55,
+            },
+        )
+        base64_data = result.get("data")
+        if not isinstance(base64_data, str) or not base64_data:
+            raise RuntimeError("captureScreenshot returned empty data")
+        return f"data:image/jpeg;base64,{base64_data}"
 
     async def _collect_page_snapshot(self, cdp: _CDPSession) -> dict[str, Any]:
         snapshot = await self._evaluate(
@@ -486,6 +516,12 @@ class RuntimeBrowserService:
             await cdp.call("Page.enable")
             image = await self._capture_screenshot_bytes(cdp, full_page=full_page)
             return {"success": True, "message": "ok", "data": {"bytes": image}}
+
+    async def _screenshot_data_url(self, full_page: bool) -> dict[str, Any]:
+        async with await self._open_session() as cdp:
+            await cdp.call("Page.enable")
+            data_url = await self._capture_screenshot_data_url(cdp, full_page=full_page)
+            return {"success": True, "message": "ok", "data": {"screenshot": data_url}}
 
 
 runtime_browser_service = RuntimeBrowserService()
