@@ -222,6 +222,13 @@ class BaseAgent(ABC):
                     function_result=tool_result.artifact
                 )
 
+                # `message_ask_user` pauses the outer execution loop immediately after CALLED.
+                # Persist this tool result before pause so next user turn has a valid
+                # assistant tool_call -> tool_result pair (strict providers require it).
+                if function_name == "message_ask_user":
+                    await self._add_to_memory([tool_result])
+                    return
+
                 tool_responses.append(tool_result)
 
             message = await self.ask_with_messages(tool_responses)

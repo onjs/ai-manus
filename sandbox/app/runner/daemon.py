@@ -70,6 +70,8 @@ class RuntimeRunnerDaemon:
         user_id = str(payload.get("user_id") or "")
         sandbox_id = str(payload.get("sandbox_id") or "")
         message = str(payload.get("message") or "")
+        session_status = str(payload.get("session_status") or "")
+        last_plan = payload.get("last_plan")
         run = self._store.get_run(session_id)
         if not run:
             self._store.upsert_run(
@@ -82,7 +84,9 @@ class RuntimeRunnerDaemon:
                 reset_events=True,
             )
 
-        task = asyncio.create_task(self._run_session(session_id, agent_id, user_id, sandbox_id, message))
+        task = asyncio.create_task(
+            self._run_session(session_id, agent_id, user_id, sandbox_id, message, session_status, last_plan)
+        )
         self._active_tasks[session_id] = task
 
     async def _cancel_run(self, session_id: str) -> None:
@@ -111,6 +115,8 @@ class RuntimeRunnerDaemon:
         user_id: str,
         sandbox_id: str,
         message: str,
+        session_status: str,
+        last_plan: dict[str, Any] | None,
     ) -> None:
         self._store.update_run_status(session_id, status="running", error=None, set_started=True)
 
@@ -122,6 +128,8 @@ class RuntimeRunnerDaemon:
                 user_id=user_id,
                 sandbox_id=sandbox_id,
                 user_message=message,
+                session_status=session_status,
+                last_plan=last_plan,
             ):
                 self._store.append_event(session_id, event, data)
                 if event == "error":

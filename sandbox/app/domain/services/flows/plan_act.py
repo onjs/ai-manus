@@ -8,7 +8,7 @@ from typing import AsyncGenerator, Optional
 from app.core.config import settings
 from app.domain.models.event import BaseEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, PlanStatus, TitleEvent, WaitEvent
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus
+from app.domain.models.plan import ExecutionStatus, Plan
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
@@ -73,12 +73,34 @@ class PlanActFlow(BaseFlow):
                 f"agent loop timeout exceeded ({self._timeout_seconds}s)",
             )
 
-    async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
+    async def run(
+        self,
+        message: Message,
+        session_status: str,
+        last_plan: dict | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
         logger.info("Agent %s start processing message", self._agent_id)
         step = None
         loop_started_at = time.monotonic()
         rounds = 0
         try:
+            if session_status not in {"pending", "running", "waiting", "completed"}:
+                raise AgentLoopError("session_status_invalid", f"unsupported session status: {session_status}")
+
+            if last_plan is not None:
+                self.plan = Plan.model_validate(last_plan)
+
+            if session_status != "pending":
+                await self.executor.roll_back(message)
+                await self.planner.roll_back(message)
+
+            if session_status == "running":
+                self.status = AgentStatus.PLANNING
+            elif session_status == "waiting":
+                if self.plan is None:
+                    raise AgentLoopError("resume_plan_missing", "last_plan is required when resuming from waiting")
+                self.status = AgentStatus.EXECUTING
+
             while True:
                 self._assert_not_timeout(loop_started_at)
                 if self.status == AgentStatus.IDLE:

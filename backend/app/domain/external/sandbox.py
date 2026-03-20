@@ -318,6 +318,8 @@ class Sandbox(Protocol):
         user_id: str,
         sandbox_id: str,
         message: str,
+        session_status: str,
+        last_plan: Optional[dict[str, Any]] = None,
     ) -> ToolResult:
         """Start sandbox-hosted runtime runner."""
         ...

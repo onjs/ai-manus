@@ -264,7 +264,12 @@ class GatewayTaskRunner(TaskRunner):
         stop = isinstance(event, (DoneEvent, ErrorEvent, WaitEvent))
         return [event], stop
 
-    async def _run_gateway_flow(self, message: str) -> AsyncGenerator[AgentEvent, None]:
+    async def _run_gateway_flow(
+        self,
+        message: str,
+        session_status: str,
+        last_plan: Optional[dict] = None,
+    ) -> AsyncGenerator[AgentEvent, None]:
         await self._ensure_gateway_runtime_configured()
         start_result = await self._sandbox.runtime_start_runner(
             session_id=self._session_id,
@@ -272,10 +277,13 @@ class GatewayTaskRunner(TaskRunner):
             user_id=self._user_id,
             sandbox_id=self._sandbox.id,
             message=message,
+            session_status=session_status,
+            last_plan=last_plan,
         )
         if not start_result.success:
             yield ErrorEvent(error=f"Failed to start sandbox runner: {start_result.message or 'unknown error'}")
             return
+        await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
 
         next_seq = 1
         try:
@@ -308,8 +316,6 @@ class GatewayTaskRunner(TaskRunner):
 
     async def run(self, task: Task) -> None:
         try:
-            await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
-
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)
                 if not event:
@@ -322,7 +328,19 @@ class GatewayTaskRunner(TaskRunner):
                     await self._put_and_add_event(task, ErrorEvent(error="No message"))
                     continue
 
-                async for out_event in self._run_gateway_flow(message):
+                session = await self._session_repository.find_by_id(self._session_id)
+                if session is None:
+                    await self._put_and_add_event(task, ErrorEvent(error="Session not found"))
+                    return
+                session_status = session.status.value if hasattr(session.status, "value") else str(session.status)
+                plan = session.get_last_plan()
+                last_plan = plan.model_dump(mode="json") if plan is not None else None
+
+                async for out_event in self._run_gateway_flow(
+                    message,
+                    session_status=session_status,
+                    last_plan=last_plan,
+                ):
                     await self._put_and_add_event(task, out_event)
                     if isinstance(out_event, MessageEvent):
                         await self._session_repository.update_latest_message(
@@ -352,7 +370,10 @@ class GatewayTaskRunner(TaskRunner):
             await self._cleanup_gateway_credentials("stream_failed")
 
     async def on_done(self, task: Task) -> None:
-        await self._cleanup_gateway_credentials("done")
+        _ = task
+        # `run()` already performs explicit credential cleanup on every terminal path.
+        # Avoid duplicate async cleanup here, which can race with a new resumed run.
+        return
 
     async def destroy(self) -> None:
         await self._cleanup_gateway_credentials("destroy")

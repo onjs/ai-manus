@@ -475,6 +475,8 @@ class DockerSandbox(Sandbox):
         user_id: str,
         sandbox_id: str,
         message: str,
+        session_status: str,
+        last_plan: Optional[Dict[str, Any]] = None,
     ) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/runtime/runs/start",
@@ -485,6 +487,8 @@ class DockerSandbox(Sandbox):
                 "user_id": user_id,
                 "sandbox_id": sandbox_id,
                 "message": message,
+                "session_status": session_status,
+                "last_plan": last_plan,
             },
         )
         return ToolResult(**response.json())
@@ -634,9 +638,7 @@ class DockerSandbox(Sandbox):
         settings = get_settings()
 
         if settings.sandbox_address:
-            # Chrome CDP needs IP address
-            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
-            return DockerSandbox(ip=ip)
+            return DockerSandbox(ip=settings.sandbox_address)
     
         return await asyncio.to_thread(DockerSandbox._create_task)
     
@@ -653,8 +655,7 @@ class DockerSandbox(Sandbox):
         """
         settings = get_settings()
         if settings.sandbox_address:
-            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
-            return DockerSandbox(ip=ip, container_name=id)
+            return DockerSandbox(ip=settings.sandbox_address, container_name=id)
 
         docker_client = docker.from_env()
         container = docker_client.containers.get(id)

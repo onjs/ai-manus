@@ -59,11 +59,17 @@ class RuntimeAgentService:
         user_id: str,
         sandbox_id: str,
         user_message: str,
+        session_status: str,
+        last_plan: dict[str, Any] | None,
     ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
         _ = (user_id, sandbox_id)
         try:
             flow = self._build_flow(session_id=session_id, agent_id=agent_id)
-            async for event in flow.run(Message(message=user_message, attachments=[])):
+            async for event in flow.run(
+                Message(message=user_message, attachments=[]),
+                session_status=session_status,
+                last_plan=last_plan,
+            ):
                 yield self._map_event(event)
         except Exception as e:
             err = ErrorEvent(error=str(e))

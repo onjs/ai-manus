@@ -62,6 +62,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 self._raise_with_upstream_detail(exc)
+            except httpx.RequestError as exc:
+                raise UpstreamProviderError(
+                    status_code=502,
+                    detail=f"upstream request failed: {exc}",
+                ) from exc
             body = response.json()
             if not isinstance(body, dict):
                 raise ValueError("upstream chat completions response must be JSON object")
@@ -70,17 +75,23 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     async def stream_chat_completion(self, payload: dict[str, Any]) -> AsyncGenerator[bytes, None]:
         url = f"{self._api_base}/chat/completions"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST",
-                url,
-                headers=self._headers(),
-                json=self._build_payload(payload, force_stream=True),
-            ) as response:
-                try:
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as exc:
-                    self._raise_with_upstream_detail(exc)
-                async for chunk in response.aiter_raw():
-                    if not chunk:
-                        continue
-                    yield chunk
+            try:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=self._headers(),
+                    json=self._build_payload(payload, force_stream=True),
+                ) as response:
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        self._raise_with_upstream_detail(exc)
+                    async for chunk in response.aiter_raw():
+                        if not chunk:
+                            continue
+                        yield chunk
+            except httpx.RequestError as exc:
+                raise UpstreamProviderError(
+                    status_code=502,
+                    detail=f"upstream stream failed: {exc}",
+                ) from exc

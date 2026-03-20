@@ -152,7 +152,7 @@ class AgentDomainService:
                 idempotency_lock_acquired = True
 
             if has_message:
-                if task is None:
+                if session.status != SessionStatus.RUNNING or task is None:
                     task = await self._create_task(session)
                     if not task:
                         raise RuntimeError("Failed to create task")
@@ -182,10 +182,12 @@ class AgentDomainService:
             logger.info(f"Session {session_id} started")
             logger.debug(f"Session {session_id} task: {task}")
            
-            while task and not task.done:
-                event_id, event_str = await task.output_stream.get(start_id=cursor_event_id, block_ms=0)
+            while task:
+                event_id, event_str = await task.output_stream.get(start_id=cursor_event_id, block_ms=200)
                 cursor_event_id = event_id
                 if event_str is None:
+                    if task.done:
+                        break
                     logger.debug(f"No event found in Session {session_id}'s event queue")
                     continue
                 event = TypeAdapter(AgentEvent).validate_json(event_str)

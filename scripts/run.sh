@@ -1,6 +1,7 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Determine which Docker Compose command to use
 if command -v docker &> /dev/null && docker compose version &> /dev/null; then
@@ -14,4 +15,8 @@ fi
 
 
 # Execute Docker Compose command
-$COMPOSE -f "$SCRIPT_DIR/docker-compose.yml" "$@"
+$COMPOSE \
+    --project-directory "$ROOT_DIR" \
+    --env-file "$ROOT_DIR/.env" \
+    -f "$SCRIPT_DIR/docker-compose.yml" \
+    "$@"
