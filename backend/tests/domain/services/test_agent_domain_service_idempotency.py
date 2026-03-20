@@ -156,6 +156,24 @@ class _FakeSessionRepository:
         self.session.status = status
 
 
+class _MissingSessionRepository(_FakeSessionRepository):
+    def __init__(self):
+        super().__init__()
+        self.add_event_calls = 0
+        self.update_unread_calls = 0
+
+    async def find_by_id_and_user_id(self, session_id, user_id):
+        return None
+
+    async def add_event(self, session_id, event):
+        self.add_event_calls += 1
+        raise AssertionError("add_event should not be called when session is missing")
+
+    async def update_unread_message_count(self, session_id, count):
+        self.update_unread_calls += 1
+        raise AssertionError("update_unread_message_count should not be called when session is missing")
+
+
 @pytest.mark.asyncio
 async def test_chat_requires_request_id_when_message_exists():
     repo = _FakeSessionRepository()
@@ -185,6 +203,40 @@ async def test_chat_requires_request_id_when_message_exists():
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
     assert "request_id is required" in events[0].error
+
+
+@pytest.mark.asyncio
+async def test_chat_missing_session_does_not_trigger_secondary_repository_writes():
+    repo = _MissingSessionRepository()
+    task = _FakeTask()
+
+    service = AgentDomainService.__new__(AgentDomainService)
+    service._session_repository = repo
+    service._task_cls = None
+    service._chat_idempotency = ChatIdempotencyService(redis_client=_FakeRedisClient())
+
+    async def _create_task(_session):
+        return task
+
+    async def _get_task(_session):
+        return task
+
+    service._create_task = _create_task
+    service._get_task = _get_task
+
+    events = [
+        event async for event in service.chat(
+            session_id="missing",
+            user_id="u1",
+            message="hello",
+            request_id="req-missing",
+        )
+    ]
+    assert len(events) == 1
+    assert isinstance(events[0], ErrorEvent)
+    assert events[0].error == "Session not found"
+    assert repo.add_event_calls == 0
+    assert repo.update_unread_calls == 0
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 from typing import Optional, Dict
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field, field_validator
 from app.domain.models.memory import Memory
 import uuid
@@ -16,8 +16,8 @@ class Agent(BaseModel):
     max_tokens: int = Field(default=2000)
     
     # Context related fields
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # Creation timestamp
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # Last update timestamp
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))  # Creation timestamp
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))  # Last update timestamp
 
     @field_validator("temperature")
     def validate_temperature(cls, v: float) -> float:

@@ -122,6 +122,7 @@ class AgentDomainService:
         replay_events: list[dict[str, Any]] = []
         replay_terminal = False
         idempotency_lock_acquired = False
+        session: Optional[Session] = None
         try:
             session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
             if not session:
@@ -203,7 +204,8 @@ class AgentDomainService:
         except Exception as e:
             logger.exception(f"Error in Session {session_id}")
             event = ErrorEvent(error=str(e))
-            await self._session_repository.add_event(session_id, event)
+            if session is not None:
+                await self._session_repository.add_event(session_id, event)
             if replay_request_id:
                 replay_events.append(event.model_dump(mode="json"))
                 replay_terminal = True
@@ -214,4 +216,5 @@ class AgentDomainService:
                     await self._chat_idempotency.mark_completed(session_id, replay_request_id, replay_events)
                 else:
                     await self._chat_idempotency.clear(session_id, replay_request_id)
-            await self._session_repository.update_unread_message_count(session_id, 0)
+            if session is not None:
+                await self._session_repository.update_unread_message_count(session_id, 0)

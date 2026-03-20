@@ -128,3 +128,32 @@ async def test_runtime_runner_daemon_wait_event_marks_waiting(tmp_path):
 
     events = store.get_events("s1", from_seq=1, limit=10)
     assert [e["event"] for e in events] == ["message", "wait"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_daemon_cancel_does_not_override_terminal_status(tmp_path):
+    store = RuntimeStore(db_path=str(tmp_path / "runtime_cancel_terminal.db"))
+    store.upsert_run(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        status="completed",
+        message="done",
+        reset_events=True,
+    )
+    store.enqueue_command(
+        session_id="s1",
+        command_type="cancel",
+        payload={"session_id": "s1"},
+    )
+
+    daemon = RuntimeRunnerDaemon(
+        store,
+        FakeGatewayRuntime(),
+        FakeRuntimeAgent(),
+    )
+    await daemon._process_pending_commands()  # noqa: SLF001
+
+    run = store.get_run("s1")
+    assert run is not None
+    assert run["status"] == "completed"

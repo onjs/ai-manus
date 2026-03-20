@@ -559,50 +559,14 @@ class DockerSandbox(Sandbox):
             raise ValueError("sandbox SSE data must be a JSON object")
         return parsed
     
-    @staticmethod
-    @alru_cache(maxsize=128, typed=True)
-    async def _resolve_hostname_to_ip(hostname: str) -> str:
-        """Resolve hostname to IP address
-        
-        Args:
-            hostname: Hostname to resolve
-            
-        Returns:
-            Resolved IP address, or None if resolution fails
-            
-        Note:
-            This method is cached using LRU cache with a maximum size of 128 entries.
-            The cache helps reduce repeated DNS lookups for the same hostname.
-        """
-        try:
-            # First check if hostname is already in IP address format
-            try:
-                socket.inet_pton(socket.AF_INET, hostname)
-                # If successfully parsed, it's an IPv4 address format, return directly
-                return hostname
-            except OSError:
-                # Not a valid IP address format, proceed with DNS resolution
-                pass
-                
-            # Use socket.getaddrinfo for DNS resolution
-            addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
-            # Return the first IPv4 address found
-            if addr_info and len(addr_info) > 0:
-                return addr_info[0][4][0]  # Return sockaddr[0] from (family, type, proto, canonname, sockaddr), which is the IP address
-            return None
-        except Exception as e:
-            # Log error and return None on failure
-            logger.error(f"Failed to resolve hostname {hostname}: {str(e)}")
-            return None
-    
     async def destroy(self) -> bool:
         """Destroy Docker sandbox"""
         try:
             if self.client:
                 await self.client.aclose()
-            if self.container_name:
+            if self._container_name:
                 docker_client = docker.from_env()
-                docker_client.containers.get(self.container_name).remove(force=True)
+                docker_client.containers.get(self._container_name).remove(force=True)
             return True
         except Exception as e:
             logger.error(f"Failed to destroy Docker sandbox: {str(e)}")

@@ -90,7 +90,12 @@ class RuntimeRunnerDaemon:
         if task and not task.done():
             task.cancel()
             return
-        self._store.update_run_status(session_id, status="cancelled", error="Runner cancelled", set_finished=True)
+        run = self._store.get_run(session_id)
+        if not run:
+            return
+        status = str(run.get("status") or "")
+        if status in {"starting", "running", "cancelling"}:
+            self._store.update_run_status(session_id, status="cancelled", error="Runner cancelled", set_finished=True)
 
     async def _clear_run(self, session_id: str) -> None:
         task = self._active_tasks.get(session_id)

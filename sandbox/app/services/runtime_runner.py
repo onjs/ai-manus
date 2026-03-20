@@ -45,12 +45,14 @@ class RuntimeRunnerService:
         run = self._store.get_run(session_id)
         if not run:
             return {"session_id": session_id, "cancelled": False, "reason": "not_found"}
+        status = str(run.get("status") or "")
+        if status not in RUNNING_STATUSES and status != "cancelling":
+            return {"session_id": session_id, "cancelled": False, "reason": "not_running", "status": status}
         self._store.enqueue_command(
             session_id=session_id,
             command_type="cancel",
             payload={"session_id": session_id},
         )
-        status = run.get("status")
         if status in RUNNING_STATUSES:
             self._store.update_run_status(session_id, status="cancelling", error=None)
         return {"session_id": session_id, "cancelled": True}

@@ -180,3 +180,26 @@ async def test_runner_service_stream_events_stops_on_waiting_status(tmp_path):
 
     assert [event for event, _ in out] == ["message", "wait"]
     assert [payload["seq"] for _, payload in out] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_runner_service_cancel_noop_for_terminal_status(tmp_path):
+    store = RuntimeStore(db_path=str(tmp_path / "runtime_terminal.db"))
+    runtime = FakeRuntimeService(store)
+    service = RuntimeRunnerService(runtime)
+    service._store = store
+
+    store.upsert_run(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        status="completed",
+        message="done",
+        reset_events=True,
+    )
+
+    result = await service.cancel_run("s1")
+    assert result["cancelled"] is False
+    assert result["reason"] == "not_running"
+    assert result["status"] == "completed"
+    assert store.get_pending_commands(limit=10) == []

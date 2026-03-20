@@ -339,8 +339,6 @@ class GatewayTaskRunner(TaskRunner):
                         await self._session_repository.update_status(self._session_id, SessionStatus.WAITING)
                         await self._cleanup_gateway_credentials("waiting")
                         return
-                    if not await task.input_stream.is_empty():
-                        break
 
             await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
             await self._cleanup_gateway_credentials("stream_complete")

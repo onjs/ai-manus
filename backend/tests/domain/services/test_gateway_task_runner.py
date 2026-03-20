@@ -1,6 +1,7 @@
 import pytest
+from pydantic import TypeAdapter
 
-from app.domain.models.event import DoneEvent, ErrorEvent, MessageEvent, PlanEvent, StepEvent, TitleEvent, ToolEvent, WaitEvent
+from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, StepEvent, TitleEvent, ToolEvent, WaitEvent
 from app.domain.services.gateway_task_runner import GatewayTaskRunner
 from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.gateway.client import GatewayStreamEvent
@@ -69,6 +70,42 @@ class FakeSandbox:
             event_name = str(event["event"])
             payload = {k: v for k, v in event.items() if k != "event"}
             yield GatewayStreamEvent(event=event_name, data=payload)
+
+
+class FakeInputStream:
+    def __init__(self, messages: list[str]):
+        self._messages = list(messages)
+        self.pop_calls = 0
+
+    async def pop(self):
+        self.pop_calls += 1
+        if not self._messages:
+            return None, None
+        idx = self.pop_calls
+        message_json = self._messages.pop(0)
+        return f"{idx}-0", message_json
+
+    async def is_empty(self):
+        return len(self._messages) == 0
+
+
+class FakeOutputStream:
+    def __init__(self):
+        self._events: list[str] = []
+        self._next = 1
+
+    async def put(self, message):
+        event_id = f"{self._next}-0"
+        self._next += 1
+        self._events.append(message)
+        return event_id
+
+
+class FakeTask:
+    def __init__(self, messages: list[str]):
+        self.input_stream = FakeInputStream(messages)
+        self.output_stream = FakeOutputStream()
+
 
 @pytest.mark.asyncio
 async def test_gateway_flow_maps_chunk_to_message_and_done():
@@ -549,3 +586,37 @@ async def test_gateway_flow_stream_interrupt_yields_error_event():
     assert len(out) == 1
     assert isinstance(out[0], ErrorEvent)
     assert "Sandbox runner stream interrupted" in out[0].error
+
+
+@pytest.mark.asyncio
+async def test_gateway_runner_processes_all_pending_messages_without_premature_break():
+    sandbox = FakeSandbox([])
+    client = FakeGatewayClient()
+    repo = FakeSessionRepository()
+    runner = GatewayTaskRunner(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        sandbox=sandbox,
+        session_repository=repo,
+        gateway_client=client,
+    )
+
+    messages = [
+        MessageEvent(role="user", message="first").model_dump_json(),
+        MessageEvent(role="user", message="second").model_dump_json(),
+    ]
+    task = FakeTask(messages)
+
+    async def _fake_run_gateway_flow(message: str):
+        yield MessageEvent(role="assistant", message=f"ack:{message}")
+        yield DoneEvent()
+
+    runner._run_gateway_flow = _fake_run_gateway_flow  # type: ignore[method-assign]
+
+    await runner.run(task)
+
+    dumped_events = [TypeAdapter(AgentEvent).validate_json(raw) for raw in task.output_stream._events]  # noqa: SLF001
+    assistant_messages = [event.message for event in dumped_events if isinstance(event, MessageEvent)]
+    assert assistant_messages == ["ack:first", "ack:second"]
+    assert task.input_stream.pop_calls >= 2
