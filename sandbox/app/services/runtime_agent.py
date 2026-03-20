@@ -59,6 +59,7 @@ class RuntimeAgentService:
         user_id: str,
         sandbox_id: str,
         user_message: str,
+        attachments: list[str] | None,
         session_status: str,
         last_plan: dict[str, Any] | None,
     ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
@@ -66,7 +67,7 @@ class RuntimeAgentService:
         try:
             flow = self._build_flow(session_id=session_id, agent_id=agent_id)
             async for event in flow.run(
-                Message(message=user_message, attachments=[]),
+                Message(message=user_message, attachments=list(attachments or [])),
                 session_status=session_status,
                 last_plan=last_plan,
             ):

@@ -4,7 +4,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from app.domain.models.plan import ExecutionStatus, Step
 from app.interfaces.schemas.file import FileInfoResponse
-from app.domain.models.event import ToolStatus, ToolContent, BrowserToolContent
+from app.domain.models.event import ToolStatus, ToolContent, BrowserToolContent, ShellToolContent
 from app.domain.models.event import (
     AgentEvent,
     ErrorEvent,
@@ -100,8 +100,31 @@ class ToolSSEEvent(BaseSSEEvent):
         )
 
     @classmethod
+    def _extract_result_payload(cls, result: Any) -> Any:
+        if isinstance(result, dict):
+            data = result.get("data")
+            if isinstance(data, dict):
+                return data
+        return result
+
+    @classmethod
     async def from_event_async(cls, event: ToolEvent) -> Self:
         content = event.tool_content
+        if content is None and event.tool_name == "shell":
+            payload = cls._extract_result_payload(event.function_result)
+            if isinstance(payload, dict):
+                command = payload.get("command")
+                output = payload.get("output")
+                if isinstance(command, str):
+                    content = ShellToolContent(
+                        console=[
+                            {
+                                "ps1": "ubuntu@sandbox:~ $",
+                                "command": command,
+                                "output": output if isinstance(output, str) else str(output or ""),
+                            }
+                        ]
+                    )
         if isinstance(content, BrowserToolContent):
             screenshot = content.screenshot
             if isinstance(screenshot, str) and screenshot.strip() and not cls._is_direct_screenshot_url(screenshot):

@@ -1,5 +1,7 @@
 import pytest
+from io import BytesIO
 from pydantic import TypeAdapter
+from app.domain.models.file import FileInfo
 
 from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, StepEvent, TitleEvent, ToolEvent, WaitEvent
 from app.domain.services.gateway_task_runner import GatewayTaskRunner
@@ -8,6 +10,9 @@ from app.infrastructure.external.gateway.client import GatewayStreamEvent
 
 
 class FakeSessionRepository:
+    def __init__(self):
+        self._files: list[FileInfo] = []
+
     async def add_event(self, session_id, event):
         return None
 
@@ -19,6 +24,47 @@ class FakeSessionRepository:
 
     async def increment_unread_message_count(self, session_id):
         return None
+
+    async def add_file(self, session_id, file_info):
+        self._files.append(file_info)
+
+    async def remove_file(self, session_id, file_id):
+        self._files = [f for f in self._files if f.file_id != file_id]
+
+    async def get_file_by_path(self, session_id, file_path):
+        for file in self._files:
+            if file.file_path == file_path:
+                return file
+        return None
+
+    async def find_by_id(self, session_id):
+        class _Status:
+            value = "pending"
+
+        class SessionView:
+            def __init__(self, files):
+                self.files = files
+                self.status = _Status()
+
+            def get_last_plan(self):
+                return None
+        return SessionView(list(self._files))
+
+
+class FakeFileStorage:
+    async def upload_file(self, file_data, filename, user_id, content_type=None, metadata=None):
+        size = 0
+        if hasattr(file_data, "getvalue"):
+            size = len(file_data.getvalue())
+        return FileInfo(
+            file_id=f"file_{filename}",
+            filename=filename,
+            file_path=f"/home/ubuntu/{filename}",
+            size=size,
+            user_id=user_id,
+            content_type=content_type,
+            metadata=metadata,
+        )
 
 
 class FakeGatewayClient:
@@ -71,6 +117,10 @@ class FakeSandbox:
             payload = {k: v for k, v in event.items() if k != "event"}
             yield GatewayStreamEvent(event=event_name, data=payload)
 
+    async def file_download(self, file_path):
+        _ = file_path
+        return BytesIO(b"hello")
+
 
 class FakeInputStream:
     def __init__(self, messages: list[str]):
@@ -107,6 +157,32 @@ class FakeTask:
         self.output_stream = FakeOutputStream()
 
 
+def test_gateway_runner_sanitizes_sandbox_path_in_message_text():
+    text = "详细内容已保存到文件：/home/ubuntu/xiaohongshu_note.md"
+    assert GatewayTaskRunner._sanitize_sandbox_paths(text) == "详细内容已保存到文件：xiaohongshu_note.md"
+
+
+@pytest.mark.asyncio
+async def test_gateway_runner_adds_file_id_attachment_into_session_files():
+    runner = GatewayTaskRunner(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        sandbox=FakeSandbox([]),
+        session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
+        gateway_client=FakeGatewayClient(),
+    )
+    message_event = MessageEvent(
+        role="assistant",
+        message="done",
+        attachments=[FileInfo(file_id="file_1", filename="a.md", size=10)],
+    )
+    await runner._sync_message_attachments_to_storage(message_event)  # noqa: SLF001
+    assert message_event.attachments
+    assert message_event.attachments[0].file_id == "file_1"
+
+
 @pytest.mark.asyncio
 async def test_gateway_flow_maps_chunk_to_message_and_done():
     sandbox = FakeSandbox(
@@ -122,10 +198,11 @@ async def test_gateway_flow_maps_chunk_to_message_and_done():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     assert isinstance(out[0], MessageEvent)
     assert out[0].message == "hello world"
     assert isinstance(out[-1], DoneEvent)
@@ -165,10 +242,11 @@ async def test_gateway_flow_maps_tool_events():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     assert isinstance(out[0], ToolEvent)
     assert out[0].status.value == "calling"
     assert isinstance(out[1], ToolEvent)
@@ -213,10 +291,11 @@ async def test_gateway_flow_maps_title_plan_step_lifecycle_events():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     assert isinstance(out[0], TitleEvent)
     assert out[0].title == "采购自动化任务"
 
@@ -246,10 +325,11 @@ async def test_gateway_flow_maps_wait_event():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     assert isinstance(out[0], MessageEvent)
     assert out[0].message == "请先登录"
     assert isinstance(out[1], WaitEvent)
@@ -295,10 +375,11 @@ async def test_gateway_flow_maps_shell_and_file_tool_content():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     shell_event = out[0]
     file_event = out[1]
 
@@ -337,10 +418,11 @@ async def test_gateway_flow_shell_result_normalizes_session_id_from_args():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     tool_event = out[0]
     assert isinstance(tool_event, ToolEvent)
     assert tool_event.function_args["id"] == "shell_123"
@@ -370,10 +452,11 @@ async def test_gateway_flow_shell_result_normalizes_session_id_from_result_data(
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     tool_event = out[0]
     assert isinstance(tool_event, ToolEvent)
     assert tool_event.function_args["id"] == "shell_456"
@@ -403,10 +486,11 @@ async def test_gateway_flow_file_result_normalizes_path_from_result_data():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     tool_event = out[0]
     assert isinstance(tool_event, ToolEvent)
     assert tool_event.function_args["file"] == "/tmp/from-result.txt"
@@ -453,10 +537,11 @@ async def test_gateway_flow_search_result_normalizes_query_from_args_and_result_
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     search_from_q = out[0]
     search_from_result = out[1]
     assert isinstance(search_from_q, ToolEvent)
@@ -493,10 +578,11 @@ async def test_gateway_flow_maps_mcp_tool_content():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     tool_event = out[0]
     assert isinstance(tool_event, ToolEvent)
     assert tool_event.tool_content is not None
@@ -532,10 +618,11 @@ async def test_gateway_flow_maps_browser_preview_screenshot():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     tool_event = out[0]
     assert isinstance(tool_event, ToolEvent)
     assert tool_event.tool_content is not None
@@ -556,10 +643,11 @@ async def test_gateway_flow_error_event_stops_with_error():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     assert len(out) == 1
     assert isinstance(out[0], ErrorEvent)
 
@@ -579,10 +667,11 @@ async def test_gateway_flow_stream_interrupt_yields_error_event():
         user_id="u1",
         sandbox=sandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="pending")]  # noqa: SLF001
     assert len(out) == 1
     assert isinstance(out[0], ErrorEvent)
     assert "Sandbox runner stream interrupted" in out[0].error
@@ -599,6 +688,7 @@ async def test_gateway_runner_processes_all_pending_messages_without_premature_b
         user_id="u1",
         sandbox=sandbox,
         session_repository=repo,
+        file_storage=FakeFileStorage(),
         gateway_client=client,
     )
 
@@ -608,7 +698,7 @@ async def test_gateway_runner_processes_all_pending_messages_without_premature_b
     ]
     task = FakeTask(messages)
 
-    async def _fake_run_gateway_flow(message: str):
+    async def _fake_run_gateway_flow(message: str, session_status: str, last_plan=None):  # noqa: ARG001
         yield MessageEvent(role="assistant", message=f"ack:{message}")
         yield DoneEvent()
 
@@ -620,3 +710,24 @@ async def test_gateway_runner_processes_all_pending_messages_without_premature_b
     assistant_messages = [event.message for event in dumped_events if isinstance(event, MessageEvent)]
     assert assistant_messages == ["ack:first", "ack:second"]
     assert task.input_stream.pop_calls >= 2
+
+
+@pytest.mark.asyncio
+async def test_gateway_runner_sync_file_to_storage_adds_session_file():
+    sandbox = FakeSandbox([])
+    client = FakeGatewayClient()
+    repo = FakeSessionRepository()
+    runner = GatewayTaskRunner(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        sandbox=sandbox,
+        session_repository=repo,
+        file_storage=FakeFileStorage(),
+        gateway_client=client,
+    )
+
+    synced = await runner._sync_file_to_storage("/home/ubuntu/a.txt")  # noqa: SLF001
+    assert synced is not None
+    assert synced.filename == "a.txt"
+    assert len(repo._files) == 1

@@ -2,6 +2,7 @@ from typing import Type
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.task import Task
+from app.domain.external.file import FileStorage
 from app.domain.models.session import Session
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.gateway_task_runner import GatewayTaskRunner
@@ -17,11 +18,13 @@ class GatewayAgentRuntime(AgentRuntime):
         task_cls: Type[Task],
         sandbox_cls: Type[Sandbox],
         session_repository: SessionRepository,
+        file_storage: FileStorage,
         gateway_client: GatewayClient,
     ):
         self._task_cls = task_cls
         self._sandbox_cls = sandbox_cls
         self._session_repository = session_repository
+        self._file_storage = file_storage
         self._gateway_client = gateway_client
 
     async def _ensure_sandbox(self, session: Session) -> Sandbox:
@@ -49,6 +52,7 @@ class GatewayAgentRuntime(AgentRuntime):
             user_id=session.user_id,
             sandbox=sandbox,
             session_repository=self._session_repository,
+            file_storage=self._file_storage,
             gateway_client=self._gateway_client,
         )
         task = self._task_cls.create(task_runner)

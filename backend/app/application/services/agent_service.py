@@ -38,6 +38,7 @@ class AgentService:
             self._session_repository,
             sandbox_cls,
             task_cls,
+            file_storage,
             gateway_client,
         )
         self._sandbox_cls = sandbox_cls
@@ -215,6 +216,9 @@ class AgentService:
         """Get files for a session, ensuring it belongs to the user"""
         logger.info(f"Getting files for session {session_id} for user {user_id}")
         session = await self.get_session(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise RuntimeError("Session not found")
         return session.files
     
     async def get_shared_session_files(self, session_id: str) -> List[FileInfo]:

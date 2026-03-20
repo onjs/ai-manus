@@ -70,6 +70,7 @@ class RuntimeRunnerDaemon:
         user_id = str(payload.get("user_id") or "")
         sandbox_id = str(payload.get("sandbox_id") or "")
         message = str(payload.get("message") or "")
+        attachments = payload.get("attachments") or []
         session_status = str(payload.get("session_status") or "")
         last_plan = payload.get("last_plan")
         run = self._store.get_run(session_id)
@@ -85,7 +86,16 @@ class RuntimeRunnerDaemon:
             )
 
         task = asyncio.create_task(
-            self._run_session(session_id, agent_id, user_id, sandbox_id, message, session_status, last_plan)
+            self._run_session(
+                session_id,
+                agent_id,
+                user_id,
+                sandbox_id,
+                message,
+                attachments,
+                session_status,
+                last_plan,
+            )
         )
         self._active_tasks[session_id] = task
 
@@ -115,6 +125,7 @@ class RuntimeRunnerDaemon:
         user_id: str,
         sandbox_id: str,
         message: str,
+        attachments: list[str],
         session_status: str,
         last_plan: dict[str, Any] | None,
     ) -> None:
@@ -128,6 +139,7 @@ class RuntimeRunnerDaemon:
                 user_id=user_id,
                 sandbox_id=sandbox_id,
                 user_message=message,
+                attachments=attachments,
                 session_status=session_status,
                 last_plan=last_plan,
             ):

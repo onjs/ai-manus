@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from langchain.tools import tool
@@ -11,6 +12,7 @@ from app.domain.services.tools.local_api_client import local_sandbox_api_client
 
 class ShellToolkit(BaseToolkit):
     name: str = "shell"
+    _WAIT_ONLY_PATTERN = re.compile(r"^\s*sleep\s+\d+(?:\.\d+)?\s*;?\s*$", re.IGNORECASE)
 
     @tool(parse_docstring=True)
     async def shell_exec(self, id: str, exec_dir: str, command: str) -> ToolResult:
@@ -21,6 +23,14 @@ class ShellToolkit(BaseToolkit):
             exec_dir: Absolute working directory.
             command: Command string.
         """
+        if self._WAIT_ONLY_PATTERN.match(command or ""):
+            return ToolResult(
+                success=False,
+                message=(
+                    "shell_exec does not accept sleep-only waiting commands. "
+                    "Use browser_wait_for_selector for browser/UI waiting."
+                ),
+            )
         result = await local_sandbox_api_client.post(
             "/api/v1/shell/exec",
             {"id": id, "exec_dir": exec_dir, "command": command},

@@ -9,6 +9,7 @@ from pydantic import TypeAdapter
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.external.task import Task
 from typing import Type
+from app.domain.external.file import FileStorage
 from app.domain.models.file import FileInfo
 from app.domain.services.runtime.base import AgentRuntime
 from app.domain.services.runtime.factory import AgentRuntimeFactory
@@ -30,6 +31,7 @@ class AgentDomainService:
         session_repository: SessionRepository,
         sandbox_cls: Type[Sandbox],
         task_cls: Type[Task],
+        file_storage: FileStorage,
         gateway_client: Optional[GatewayClient] = None,
     ):
         self._session_repository = session_repository
@@ -39,6 +41,7 @@ class AgentDomainService:
             task_cls=task_cls,
             sandbox_cls=sandbox_cls,
             session_repository=session_repository,
+            file_storage=file_storage,
             gateway_client=gateway_client,
         ).create()
         logger.info("AgentDomainService initialization completed")

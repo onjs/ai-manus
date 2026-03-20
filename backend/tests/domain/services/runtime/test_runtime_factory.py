@@ -69,11 +69,16 @@ class DummyRunner:
         self.kwargs = kwargs
 
 
+class FakeFileStorage:
+    pass
+
+
 def _build_factory(gateway_client=None):
     return AgentRuntimeFactory(
         task_cls=FakeTask,
         sandbox_cls=FakeSandbox,
         session_repository=FakeSessionRepository(),
+        file_storage=FakeFileStorage(),
         gateway_client=gateway_client,
     )
 
@@ -101,6 +106,7 @@ async def test_gateway_runtime_create_task_creates_sandbox_and_binds_task(monkey
         task_cls=FakeTask,
         sandbox_cls=FakeSandbox,
         session_repository=session_repository,
+        file_storage=FakeFileStorage(),
         gateway_client=SimpleNamespace(),
     )
     session = Session(id="s3", user_id="u1", agent_id="a1")
@@ -127,6 +133,7 @@ async def test_gateway_runtime_recreates_sandbox_when_existing_unavailable(monke
         task_cls=FakeTask,
         sandbox_cls=FakeSandbox,
         session_repository=session_repository,
+        file_storage=FakeFileStorage(),
         gateway_client=SimpleNamespace(),
     )
     session = Session(id="s4", user_id="u1", agent_id="a1", sandbox_id="sandbox-old")

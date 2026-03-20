@@ -13,7 +13,7 @@ import { ref, watch, computed } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { FileInfo } from '../../api/file';
-import { downloadFile } from '../../api/file';
+import { getFileDownloadUrl } from '../../api/file';
 
 const content = ref('');
 
@@ -39,15 +39,20 @@ const renderedContent = computed(() => {
     }
 });
 
-watch(() => props.file.file_id, async (fileId) => {
-    if (!fileId) return;
+watch(() => props.file, async (file) => {
+    if (!file?.file_id) return;
     try {
-        const blob = await downloadFile(fileId);
+        const fileUrl = await getFileDownloadUrl(file);
+        const response = await fetch(fileUrl, { credentials: 'include' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
         const text = await blob.text();
         content.value = text;
     } catch (error) {
         console.error('Failed to load file content:', error);
         content.value = '(Failed to load file content)';
     }
-}, { immediate: true });
+}, { immediate: true, deep: false });
 </script>

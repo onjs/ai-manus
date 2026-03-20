@@ -476,6 +476,7 @@ class DockerSandbox(Sandbox):
         sandbox_id: str,
         message: str,
         session_status: str,
+        attachments: Optional[List[str]] = None,
         last_plan: Optional[Dict[str, Any]] = None,
     ) -> ToolResult:
         response = await self.client.post(
@@ -487,6 +488,7 @@ class DockerSandbox(Sandbox):
                 "user_id": user_id,
                 "sandbox_id": sandbox_id,
                 "message": message,
+                "attachments": attachments or [],
                 "session_status": session_status,
                 "last_plan": last_plan,
             },

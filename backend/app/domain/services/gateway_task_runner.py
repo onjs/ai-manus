@@ -1,9 +1,13 @@
 import asyncio
+import os
+import re
 import time
+import logging
 from typing import AsyncGenerator, Optional
 
 from pydantic import TypeAdapter
 
+from app.domain.external.file import FileStorage
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.task import Task, TaskRunner
 from app.domain.models.event import (
@@ -18,10 +22,15 @@ from app.domain.models.event import (
     SearchToolContent,
     ShellToolContent,
     ToolEvent,
+    ToolStatus,
 )
 from app.domain.models.session import SessionStatus
 from app.domain.repositories.session_repository import SessionRepository
+from app.domain.models.file import FileInfo
 from app.infrastructure.external.gateway.client import GatewayClient, GatewayIssuedToken, GatewayStreamEvent
+
+logger = logging.getLogger(__name__)
+SANDBOX_PATH_RE = re.compile(r"/home/ubuntu/[^\s)\]}>\"']+")
 
 
 class GatewayTaskRunner(TaskRunner):
@@ -34,6 +43,7 @@ class GatewayTaskRunner(TaskRunner):
         user_id: str,
         sandbox: Sandbox,
         session_repository: SessionRepository,
+        file_storage: FileStorage,
         gateway_client: GatewayClient,
     ):
         self._session_id = session_id
@@ -41,6 +51,7 @@ class GatewayTaskRunner(TaskRunner):
         self._user_id = user_id
         self._sandbox = sandbox
         self._session_repository = session_repository
+        self._file_storage = file_storage
         self._gateway_client = gateway_client
         self._gateway_token: Optional[str] = None
         self._gateway_token_id: Optional[str] = None
@@ -157,10 +168,12 @@ class GatewayTaskRunner(TaskRunner):
             )
         return normalized
 
-    def _build_tool_content(
+    async def _build_tool_content(
         self,
         *,
         tool_name: str,
+        tool_status: ToolStatus,
+        function_args: dict,
         function_result: object,
     ) -> Optional[BrowserToolContent | SearchToolContent | ShellToolContent | FileToolContent | McpToolContent]:
         payload = self._unwrap_result_data(function_result)
@@ -181,8 +194,31 @@ class GatewayTaskRunner(TaskRunner):
             return None
 
         if tool_name == "shell":
-            if isinstance(payload, dict) and "console" in payload:
-                return ShellToolContent(console=payload.get("console"))
+            shell_session_id = self._extract_shell_session_id(function_args, function_result)
+            # Keep shell snapshot format aligned with main: fetch console records (includes ps1 prompt).
+            if tool_status == ToolStatus.CALLED and shell_session_id:
+                try:
+                    shell_result = await self._sandbox.view_shell(shell_session_id, console=True)
+                    if shell_result.success and isinstance(shell_result.data, dict) and "console" in shell_result.data:
+                        return ShellToolContent(console=shell_result.data.get("console"))
+                except Exception:
+                    pass
+            if isinstance(payload, dict):
+                if "console" in payload:
+                    return ShellToolContent(console=payload.get("console"))
+                # Persist a replay-friendly snapshot for shell_exec-like results.
+                command = payload.get("command")
+                output = payload.get("output")
+                if isinstance(command, str):
+                    return ShellToolContent(
+                        console=[
+                            {
+                                "ps1": "ubuntu@sandbox:~ $",
+                                "command": command,
+                                "output": output if isinstance(output, str) else str(output or ""),
+                            }
+                        ]
+                    )
             return None
 
         if tool_name == "file":
@@ -194,7 +230,7 @@ class GatewayTaskRunner(TaskRunner):
 
         return McpToolContent(result=payload)
 
-    def _normalize_tool_event(self, tool_event: ToolEvent) -> ToolEvent:
+    async def _normalize_tool_event(self, tool_event: ToolEvent) -> ToolEvent:
         normalized_args = self._normalize_function_args(
             tool_name=tool_event.tool_name,
             args=tool_event.function_args or {},
@@ -202,8 +238,10 @@ class GatewayTaskRunner(TaskRunner):
         )
         tool_content = tool_event.tool_content
         if tool_content is None:
-            tool_content = self._build_tool_content(
+            tool_content = await self._build_tool_content(
                 tool_name=tool_event.tool_name,
+                tool_status=tool_event.status,
+                function_args=normalized_args,
                 function_result=tool_event.function_result,
             )
         return tool_event.model_copy(
@@ -247,7 +285,84 @@ class GatewayTaskRunner(TaskRunner):
         self._gateway_token_id = None
         self._gateway_token_expire_at = None
 
-    def _map_stream_event(
+    async def _sync_file_to_storage(self, file_path: str) -> Optional[FileInfo]:
+        """Upload or update sandbox file in persistent storage and return FileInfo."""
+        try:
+            file_info = await self._session_repository.get_file_by_path(self._session_id, file_path)
+            file_data = await self._sandbox.file_download(file_path)
+            if file_info and file_info.file_id:
+                await self._session_repository.remove_file(self._session_id, file_info.file_id)
+            file_name = file_path.split("/")[-1]
+            file_info = await self._file_storage.upload_file(file_data, file_name, self._user_id)
+            file_info.file_path = file_path
+            await self._session_repository.add_file(self._session_id, file_info)
+            return file_info
+        except Exception as e:
+            logger.exception(f"Session {self._session_id} failed to sync file {file_path}: {e}")
+            return None
+
+    async def _sync_file_to_sandbox(self, file_id: str) -> Optional[FileInfo]:
+        """Download file from storage to sandbox and return FileInfo with sandbox path."""
+        try:
+            file_data, file_info = await self._file_storage.download_file(file_id, self._user_id)
+            file_path = "/home/ubuntu/upload/" + str(file_info.filename)
+            result = await self._sandbox.file_upload(file_data, file_path)
+            if result.success:
+                file_info.file_path = file_path
+                return file_info
+        except Exception as e:
+            logger.exception(f"Session {self._session_id} failed to sync file {file_id} to sandbox: {e}")
+        return None
+
+    async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
+        """Convert message attachments from file_id to sandbox file_path for runtime input."""
+        attachments: list[FileInfo] = []
+        if not event.attachments:
+            event.attachments = attachments
+            return
+        for attachment in event.attachments:
+            if attachment.file_path:
+                attachments.append(attachment)
+                continue
+            if attachment.file_id:
+                file_info = await self._sync_file_to_sandbox(attachment.file_id)
+                if file_info:
+                    attachments.append(file_info)
+                    await self._ensure_session_file(file_info)
+        event.attachments = attachments
+
+    async def _ensure_session_file(self, file_info: FileInfo) -> None:
+        if not file_info.file_id:
+            return
+        session = await self._session_repository.find_by_id(self._session_id)
+        if session is not None and any(item.file_id == file_info.file_id for item in session.files):
+            return
+        await self._session_repository.add_file(self._session_id, file_info)
+
+    @staticmethod
+    def _sanitize_sandbox_paths(message: str) -> str:
+        if not message:
+            return message
+        return SANDBOX_PATH_RE.sub(lambda m: os.path.basename(m.group(0)), message)
+
+    async def _sync_message_attachments_to_storage(self, event: MessageEvent) -> None:
+        """Convert message attachments from sandbox paths to storage-backed FileInfo."""
+        attachments: list[FileInfo] = []
+        if not event.attachments:
+            event.attachments = attachments
+            return
+        for attachment in event.attachments:
+            if attachment.file_id:
+                await self._ensure_session_file(attachment)
+                attachments.append(attachment)
+                continue
+            if attachment.file_path:
+                file_info = await self._sync_file_to_storage(attachment.file_path)
+                if file_info:
+                    attachments.append(file_info)
+        event.attachments = attachments
+
+    async def _map_stream_event(
         self,
         stream_event: GatewayStreamEvent,
     ) -> tuple[list[AgentEvent], bool]:
@@ -259,7 +374,7 @@ class GatewayTaskRunner(TaskRunner):
             return [ErrorEvent(error=f"Invalid gateway event payload: {e}")], True
 
         if isinstance(event, ToolEvent):
-            event = self._normalize_tool_event(event)
+            event = await self._normalize_tool_event(event)
 
         stop = isinstance(event, (DoneEvent, ErrorEvent, WaitEvent))
         return [event], stop
@@ -269,6 +384,7 @@ class GatewayTaskRunner(TaskRunner):
         message: str,
         session_status: str,
         last_plan: Optional[dict] = None,
+        attachments: Optional[list[str]] = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         await self._ensure_gateway_runtime_configured()
         start_result = await self._sandbox.runtime_start_runner(
@@ -277,6 +393,7 @@ class GatewayTaskRunner(TaskRunner):
             user_id=self._user_id,
             sandbox_id=self._sandbox.id,
             message=message,
+            attachments=attachments or [],
             session_status=session_status,
             last_plan=last_plan,
         )
@@ -305,7 +422,7 @@ class GatewayTaskRunner(TaskRunner):
                     event=bridge_event.event,
                     data={k: v for k, v in payload.items() if k not in {"seq", "timestamp", "session_id"}},
                 )
-                out_events, stop = self._map_stream_event(stream_event)
+                out_events, stop = await self._map_stream_event(stream_event)
                 for out_event in out_events:
                     yield out_event
                 if stop:
@@ -322,8 +439,15 @@ class GatewayTaskRunner(TaskRunner):
                     continue
 
                 message = ""
+                message_attachments: list[str] = []
                 if isinstance(event, MessageEvent):
                     message = event.message or ""
+                    await self._sync_message_attachments_to_sandbox(event)
+                    message_attachments = [
+                        attachment.file_path
+                        for attachment in (event.attachments or [])
+                        if isinstance(attachment.file_path, str) and attachment.file_path.strip()
+                    ]
                 if not message:
                     await self._put_and_add_event(task, ErrorEvent(error="No message"))
                     continue
@@ -340,7 +464,25 @@ class GatewayTaskRunner(TaskRunner):
                     message,
                     session_status=session_status,
                     last_plan=last_plan,
+                    attachments=message_attachments,
                 ):
+                    status_value = (
+                        out_event.status.value
+                        if isinstance(out_event, ToolEvent) and hasattr(out_event.status, "value")
+                        else str(getattr(out_event, "status", ""))
+                    )
+                    if (
+                        isinstance(out_event, ToolEvent)
+                        and out_event.tool_name == "file"
+                        and status_value == ToolStatus.CALLED.value
+                    ):
+                        file_path = out_event.function_args.get("file")
+                        if isinstance(file_path, str) and file_path.strip():
+                            await self._sync_file_to_storage(file_path)
+                    if isinstance(out_event, MessageEvent):
+                        if out_event.role == "assistant":
+                            out_event.message = self._sanitize_sandbox_paths(out_event.message)
+                        await self._sync_message_attachments_to_storage(out_event)
                     await self._put_and_add_event(task, out_event)
                     if isinstance(out_event, MessageEvent):
                         await self._session_repository.update_latest_message(

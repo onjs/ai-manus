@@ -33,6 +33,8 @@ Note:
 - For browser tasks involving multiple actions, dynamic menus, page transitions, or form filling, call browser_run_goal first instead of manually chaining many low-level browser actions.
 - For dynamic menus/dropdowns, use browser_hover_observe before browser_click to reveal hidden items.
 - After critical clicks, use browser_wait_for_selector to verify expected UI appears before continuing.
+- Never use shell_exec with commands like `sleep` to wait for browser/UI state changes.
+- For browser waiting, you must use browser_wait_for_selector (or browser_accessibility_snapshot when needed).
 - Use browser_accessibility_snapshot when DOM text is ambiguous or dynamically changing.
 - For complex enterprise form controls, prefer semantic field tools: browser_set_date_field / browser_set_select_field / browser_set_people_field.
 
