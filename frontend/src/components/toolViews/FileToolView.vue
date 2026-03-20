@@ -64,6 +64,7 @@ const props = defineProps<{
   sessionId: string;
   toolContent: ToolContent;
   live: boolean;
+  isShare: boolean;
 }>();
 
 defineExpose({
