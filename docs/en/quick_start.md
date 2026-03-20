@@ -26,7 +26,7 @@ cp .env.example .env
 3. Start services:
 
 ```bash
-docker compose -f docker-compose-development.yml up -d --build
+docker compose -f scripts/docker-compose-development.yml up -d --build
 ```
 
 4. Access endpoints:
@@ -38,6 +38,6 @@ docker compose -f docker-compose-development.yml up -d --build
 
 ## Production/Simplified Compose Example
 
-Use [`docker-compose-example.yml`](../docker-compose-example.yml) in repository root. It is aligned with the current flow:
+Use [`scripts/docker-compose-example.yml`](../scripts/docker-compose-example.yml) in repository root. It is aligned with the current flow:
 
 `frontend -> backend -> gateway -> sandbox` with MongoDB/Redis.

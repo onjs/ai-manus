@@ -26,7 +26,7 @@
 			{
 				"label": "dev",
 				"type": "shell",
-				"command": "./dev.sh up -d",
+				"command": "./scripts/dev.sh up -d",
 				"problemMatcher": []
 			},
 			{
@@ -44,19 +44,19 @@
 			{
 				"label": "sandbox logs",
 				"type": "shell",
-				"command": "./dev.sh logs -f sandbox",
+				"command": "./scripts/dev.sh logs -f sandbox",
 				"problemMatcher": []
 			},
 			{
 				"label": "frontend logs",
 				"type": "shell",
-				"command": "./dev.sh logs -f frontend",
+				"command": "./scripts/dev.sh logs -f frontend",
 				"problemMatcher": []
 			},
 			{
 				"label": "backend logs",
 				"type": "shell",
-				"command": "./dev.sh logs -f backend",
+				"command": "./scripts/dev.sh logs -f backend",
 				"problemMatcher": []
 			}
 		]

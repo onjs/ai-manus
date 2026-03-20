@@ -26,7 +26,7 @@ cp .env.example .env
 3. 启动：
 
 ```bash
-docker compose -f docker-compose-development.yml up -d --build
+docker compose -f scripts/docker-compose-development.yml up -d --build
 ```
 
 4. 打开：
@@ -38,6 +38,6 @@ docker compose -f docker-compose-development.yml up -d --build
 
 ## 生产/简化编排示例
 
-可直接使用仓库根目录的 [`docker-compose-example.yml`](../docker-compose-example.yml)，其拓扑已对齐当前链路：
+可直接使用仓库根目录的 [`scripts/docker-compose-example.yml`](../scripts/docker-compose-example.yml)，其拓扑已对齐当前链路：
 
 `frontend -> backend -> gateway -> sandbox`，并包含 MongoDB/Redis。

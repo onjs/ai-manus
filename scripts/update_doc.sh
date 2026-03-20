@@ -1,5 +1,8 @@
 #!/bin/bash
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 # Script Description: Replace content surrounded by specific comments in all md files with corresponding file content
 # Universal format: <!-- filename --> content <!-- /filename -->
 # The script will automatically detect all comment tags in this format and replace them with the corresponding file content
@@ -12,7 +15,7 @@
 
 # Files to sync (format: "filename:code_type")
 FILES_TO_SYNC=(
-    "docker-compose-example.yml:yaml"
+    "scripts/docker-compose-example.yml:yaml"
     ".env.example:env"
     # Add more files, uncomment and modify the following examples:
     # "package.json:json"

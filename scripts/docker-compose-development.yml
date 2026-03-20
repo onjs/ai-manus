@@ -92,8 +92,7 @@ services:
       context: ./sandbox
       dockerfile: Dockerfile
       args:
-        APT_MIRROR: ${SANDBOX_APT_MIRROR:-}
-        INSTALL_CJK_FONTS: ${SANDBOX_INSTALL_CJK_FONTS:-true}
+        SANDBOX_BASE_IMAGE: ${SANDBOX_BASE_IMAGE:-ai-manus-sandbox-base:latest}
     hostname: sandbox
     volumes:
       - ./sandbox:/app  # Mount source code directory

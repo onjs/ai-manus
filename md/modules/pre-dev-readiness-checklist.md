@@ -31,7 +31,7 @@
 - [ ] 冒烟联调通过
 - [ ] 观测与告警上线
 - [ ] 回滚演练通过
-- [ ] `backend/.env.example`、`sandbox/.env.example`、`docker-compose-development.yml` 已补齐 gateway 配置
+- [ ] `backend/.env.example`、`sandbox/.env.example`、`scripts/docker-compose-development.yml` 已补齐 gateway 配置
 - [ ] E7（Gateway+Runner 完整闭环）验收通过
 - [ ] E8（SSE + noVNC 映射）验收通过
 - [ ] E9（安全门禁）验收通过

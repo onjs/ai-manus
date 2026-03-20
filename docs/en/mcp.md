@@ -59,7 +59,7 @@ MCP server configuration is managed through the `mcp.json` file, which contains 
 
 ### Docker Compose Configuration
 
-Configure MCP in `docker-compose.yml` (currently loaded by the **sandbox** service):
+Configure MCP in `scripts/docker-compose.yml` (currently loaded by the **sandbox** service):
 
 ```yaml
 ...

@@ -35,7 +35,26 @@ cp .env.example .env
 3. 开发模式启动：
 
 ```bash
-docker compose -f docker-compose-development.yml up -d --build
+docker compose -f scripts/docker-compose-development.yml up -d --build
+```
+
+### Sandbox 增量构建（推荐）
+
+生产部署建议将 Sandbox 拆成两层镜像：
+
+- `base`：系统依赖（Chromium/字体/locale 等，变更频率低）
+- `runtime`：应用代码（变更频率高）
+
+首次或系统依赖变更时构建 `base`：
+
+```bash
+./scripts/build_sandbox_base.sh
+```
+
+日常仅改代码时构建 `runtime`：
+
+```bash
+./scripts/build_sandbox_runtime.sh
 ```
 
 4. 访问地址：
@@ -47,7 +66,7 @@ docker compose -f docker-compose-development.yml up -d --build
 
 ## Compose 示例
 
-可使用 [`docker-compose-example.yml`](./docker-compose-example.yml) 作为简化部署示例，已与当前架构保持一致。
+可使用 [`scripts/docker-compose-example.yml`](./scripts/docker-compose-example.yml) 作为简化部署示例，已与当前架构保持一致。
 
 ## 文档
 

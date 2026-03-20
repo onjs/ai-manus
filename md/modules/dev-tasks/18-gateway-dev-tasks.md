@@ -37,7 +37,7 @@
 
 ## G0.2 编排与配置接入
 1. 更新：
-- `/Users/zuos/code/github/ai-manus/docker-compose-development.yml`
+- `/Users/zuos/code/github/ai-manus/scripts/docker-compose-development.yml`
 - `/Users/zuos/code/github/ai-manus/.env.example`
 - `/Users/zuos/code/github/ai-manus/backend/.env.example`
 - `/Users/zuos/code/github/ai-manus/sandbox/.env.example`

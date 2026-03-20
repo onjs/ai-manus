@@ -64,7 +64,7 @@
 
 ## 剩余推进顺序（当前冻结执行序）
 1. `P0 基线补齐`：
-- 补齐 `backend/.env.example`、`sandbox/.env.example`、`docker-compose-development.yml` 的 `gateway` 服务段。
+- 补齐 `backend/.env.example`、`sandbox/.env.example`、`scripts/docker-compose-development.yml` 的 `gateway` 服务段。
 - 固化 `token issue/revoke` 的 Redis key 规范与失效策略。
 2. `P1 Gateway 完整闭环`：
 - 完成 `ask/stream/batch/embeddings + issue/revoke/introspect`。

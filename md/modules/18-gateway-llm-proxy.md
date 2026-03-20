@@ -88,7 +88,7 @@
 - `GATEWAY_INTERNAL_API_KEY`
 - `GATEWAY_TOKEN_ISSUER_SECRET`
 - `GATEWAY_TOKEN_TTL_SECONDS`
-3. `docker-compose-development.yml`
+3. `scripts/docker-compose-development.yml`
 - 新增 `gateway` 服务与健康检查、内部网络隔离、资源限制
 4. 运维文档
 - egress 策略、token 生命周期、密钥轮换、策略变更审计流程

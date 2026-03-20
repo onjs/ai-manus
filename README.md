@@ -35,7 +35,26 @@ cp .env.example .env
 3. Start in development:
 
 ```bash
-docker compose -f docker-compose-development.yml up -d --build
+docker compose -f scripts/docker-compose-development.yml up -d --build
+```
+
+### Incremental Sandbox Build (Recommended)
+
+For production, split Sandbox into two image layers:
+
+- `base`: system dependencies (Chromium/fonts/locale, low change frequency)
+- `runtime`: application code (high change frequency)
+
+Build `base` only when system dependencies change:
+
+```bash
+./scripts/build_sandbox_base.sh
+```
+
+Build `runtime` for normal code changes:
+
+```bash
+./scripts/build_sandbox_runtime.sh
 ```
 
 4. Access:
@@ -47,7 +66,7 @@ docker compose -f docker-compose-development.yml up -d --build
 
 ## Compose Example
 
-Use [`docker-compose-example.yml`](./docker-compose-example.yml) for a simplified topology aligned to the current architecture.
+Use [`scripts/docker-compose-example.yml`](./scripts/docker-compose-example.yml) for a simplified topology aligned to the current architecture.
 
 ## Docs
 

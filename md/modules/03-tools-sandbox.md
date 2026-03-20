@@ -47,7 +47,7 @@
 - sandbox 创建/获取与当前行为
   - `/Users/zuos/code/github/ai-manus/backend/app/domain/services/agent_domain_service.py`
   - `/Users/zuos/code/github/ai-manus/backend/app/infrastructure/external/sandbox/docker_sandbox.py`
-  - `/Users/zuos/code/github/ai-manus/docker-compose-development.yml`
+  - `/Users/zuos/code/github/ai-manus/scripts/docker-compose-development.yml`
 - timeout 机制（sandbox 侧）
   - `/Users/zuos/code/github/ai-manus/sandbox/app/services/supervisor.py`
   - `/Users/zuos/code/github/ai-manus/sandbox/app/core/middleware.py`

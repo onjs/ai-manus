@@ -14,7 +14,7 @@
 - `/Users/zuos/code/github/ai-manus/sandbox/app/core/config.py`
 - `/Users/zuos/code/github/ai-manus/sandbox/.env.example`（需新增）
 3. 编排
-- `/Users/zuos/code/github/ai-manus/docker-compose-development.yml`
+- `/Users/zuos/code/github/ai-manus/scripts/docker-compose-development.yml`
 - 新增 `gateway` 服务、健康检查、内网访问配置。
 
 完成标准：
