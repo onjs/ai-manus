@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     model_provider: str = "openai"
     temperature: float = 0.7
     max_tokens: int = 2000
+
+    # Runtime configuration
+    agent_runtime: str = "manus"  # "manus" or "openfang"
+
+    # OpenFang bridge configuration
+    openfang_base_url: str | None = None
+    openfang_api_key: str | None = None
+    openfang_agent_id: str | None = None
+    openfang_template: str = "assistant"
     
     # MongoDB configuration
     mongodb_uri: str = "mongodb://mongodb:27017"
@@ -58,6 +67,9 @@ class Settings(BaseSettings):
 
     # Browser engine configuration
     browser_engine: str = "playwright"  # "playwright" or "browser_use"
+    browser_engine_vision_enabled: bool = True
+    browser_engine_vision_max_image_bytes: int = 350000
+    browser_engine_vision_round_limit: int = 6
     
     # Search engine configuration
     search_provider: str | None = "bing_web"  # "baidu", "baidu_web", "google", "bing", "bing_web", "tavily"
@@ -103,6 +115,10 @@ class Settings(BaseSettings):
         
     def validate(self):
         """Validate configuration settings"""
+        if self.agent_runtime == "openfang":
+            if not self.openfang_base_url:
+                raise ValueError("OPENFANG_BASE_URL is required when AGENT_RUNTIME=openfang")
+            return
         if not self.api_key:
             raise ValueError("API key is required")
 
@@ -110,7 +126,9 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get application settings"""
     if not os.environ.get("OPENAI_API_KEY"):
-        os.environ["OPENAI_API_KEY"] = os.getenv("API_KEY")
+        api_key = os.getenv("API_KEY")
+        if api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
     settings = Settings()
     settings.extra_headers = _parse_extra_headers()
     settings.validate()
