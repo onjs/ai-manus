@@ -69,6 +69,8 @@ class RuntimeBrowserService:
                     return await self._view()
                 if fn == "browser_navigate":
                     return await self._navigate(str(args.get("url") or "").strip())
+                if fn == "browser_restart":
+                    return await self._restart(str(args.get("url") or "").strip())
                 if fn == "browser_click":
                     return await self._click(
                         index=args.get("index"),
@@ -94,17 +96,26 @@ class RuntimeBrowserService:
                         timeout_ms=int(args.get("timeout_ms") or 6000),
                     )
                 if fn == "browser_accessibility_snapshot":
-                    return await self._accessibility_snapshot(
-                        max_nodes=int(args.get("max_nodes") or 200),
+                    return await self._accessibility_snapshot(max_nodes=int(args.get("max_nodes") or 200))
+                if fn == "browser_move_mouse":
+                    return await self._move_mouse(
+                        coordinate_x=args.get("coordinate_x"),
+                        coordinate_y=args.get("coordinate_y"),
                     )
                 if fn == "browser_press_key":
                     return await self._press_key(str(args.get("key") or ""))
+                if fn == "browser_select_option":
+                    return await self._select_option(index=args.get("index"), option=args.get("option"))
                 if fn == "browser_scroll_down":
                     return await self._scroll(down=True, to_boundary=bool(args.get("to_bottom", False)))
                 if fn == "browser_scroll_up":
                     return await self._scroll(down=False, to_boundary=bool(args.get("to_top", False)))
                 if fn == "browser_console_exec":
                     return await self._console_exec(str(args.get("javascript") or ""))
+                if fn == "browser_console_view":
+                    return await self._console_view(max_lines=args.get("max_lines"))
+                if fn == "browser_screenshot":
+                    return await self._screenshot(full_page=bool(args.get("full_page", False)))
 
                 return {
                     "success": False,
@@ -158,12 +169,27 @@ class RuntimeBrowserService:
         )
         return self._unwrap_remote_value(result)
 
-    async def _capture_screenshot_data_url(self, cdp: _CDPSession) -> str:
+    async def _capture_screenshot_bytes(self, cdp: _CDPSession, full_page: bool = False) -> bytes:
+        if full_page:
+            metrics = await cdp.call("Page.getLayoutMetrics")
+            content_size = metrics.get("contentSize", {}) if isinstance(metrics, dict) else {}
+            width = int(content_size.get("width", 0) or 0)
+            height = int(content_size.get("height", 0) or 0)
+            if width > 0 and height > 0:
+                await cdp.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    {
+                        "mobile": False,
+                        "width": width,
+                        "height": height,
+                        "deviceScaleFactor": 1,
+                    },
+                )
         result = await cdp.call("Page.captureScreenshot", {"format": "png"})
         base64_data = result.get("data")
         if not isinstance(base64_data, str) or not base64_data:
             raise RuntimeError("captureScreenshot returned empty data")
-        return f"data:image/png;base64,{base64_data}"
+        return base64.b64decode(base64_data)
 
     async def _collect_page_snapshot(self, cdp: _CDPSession) -> dict[str, Any]:
         snapshot = await self._evaluate(
@@ -184,17 +210,15 @@ class RuntimeBrowserService:
                 let idx = 0;
                 for (const node of nodes) {
                   if (!isVisible(node)) continue;
-                  const txt = (node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('placeholder') || '').trim().replace(/\\s+/g, ' ');
-                  node.setAttribute('data-runtime-index', String(idx));
+                  const txt = (node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('placeholder') || '').trim().replace(/\s+/g, ' ');
+                  node.setAttribute('data-manus-id', `manus-element-${idx}`);
                   interactive.push(`${idx}:<${(node.tagName || 'node').toLowerCase()}>${txt || '[No text]'}</${(node.tagName || 'node').toLowerCase()}>`);
                   idx += 1;
                   if (interactive.length >= 200) break;
                 }
                 const bodyText = (document.body?.innerText || '').trim();
                 return {
-                  url: location.href || '',
-                  title: document.title || '',
-                  content: bodyText.length > 12000 ? bodyText.slice(0, 12000) + '\\n...(truncated)' : bodyText,
+                  content: bodyText.length > 12000 ? bodyText.slice(0, 12000) + '\n...(truncated)' : bodyText,
                   interactive_elements: interactive,
                 };
             })()""",
@@ -202,8 +226,6 @@ class RuntimeBrowserService:
         if isinstance(snapshot, dict):
             return snapshot
         return {
-            "url": "",
-            "title": "",
             "content": "",
             "interactive_elements": [],
         }
@@ -213,7 +235,6 @@ class RuntimeBrowserService:
             await cdp.call("Page.enable")
             await cdp.call("Runtime.enable")
             data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
             return {"success": True, "message": "ok", "data": data}
 
     async def _navigate(self, url: str) -> dict[str, Any]:
@@ -224,15 +245,21 @@ class RuntimeBrowserService:
             await cdp.call("Page.enable")
             await cdp.call("Runtime.enable")
             await cdp.call("Page.navigate", {"url": url})
-            deadline = time.time() + 12
+            deadline = time.time() + 15
             while time.time() < deadline:
                 state = await self._evaluate(cdp, "document.readyState")
                 if state in {"interactive", "complete"}:
                     break
                 await asyncio.sleep(0.25)
             data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+            return {
+                "success": True,
+                "message": "ok",
+                "data": {"interactive_elements": data.get("interactive_elements", [])},
+            }
+
+    async def _restart(self, url: str) -> dict[str, Any]:
+        return await self._navigate(url)
 
     async def _click(self, index: Any = None, coordinate_x: Any = None, coordinate_y: Any = None) -> dict[str, Any]:
         async with await self._open_session() as cdp:
@@ -251,7 +278,7 @@ class RuntimeBrowserService:
                 clicked = await self._evaluate(
                     cdp,
                     f"""(() => {{
-                        const target = document.querySelector('[data-runtime-index="{int(index)}"]');
+                        const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
                         if (!target) return false;
                         target.scrollIntoView({{block: 'center'}});
                         target.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
@@ -264,10 +291,7 @@ class RuntimeBrowserService:
                 if not clicked:
                     return {"success": False, "message": f"interactive index not found: {index}", "data": {}}
 
-            await asyncio.sleep(0.3)
-            data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+            return {"success": True, "message": "ok", "data": None}
 
     async def _hover(self, index: Any = None, coordinate_x: Any = None, coordinate_y: Any = None) -> dict[str, Any]:
         async with await self._open_session() as cdp:
@@ -284,7 +308,7 @@ class RuntimeBrowserService:
                 hovered = await self._evaluate(
                     cdp,
                     f"""(() => {{
-                        const target = document.querySelector('[data-runtime-index="{int(index)}"]');
+                        const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
                         if (!target) return false;
                         target.scrollIntoView({{block: 'center'}});
                         target.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
@@ -294,9 +318,8 @@ class RuntimeBrowserService:
                 )
                 if not hovered:
                     return {"success": False, "message": f"interactive index not found: {index}", "data": {}}
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.25)
             data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
             return {"success": True, "message": "ok", "data": data}
 
     async def _input(self, text: str, press_enter: bool, index: Any = None) -> dict[str, Any]:
@@ -309,7 +332,7 @@ class RuntimeBrowserService:
             set_result = await self._evaluate(
                 cdp,
                 f"""(() => {{
-                    const target = document.querySelector('[data-runtime-index="{int(index)}"]');
+                    const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
                     if (!target) return false;
                     target.scrollIntoView({{block: 'center'}});
                     target.focus();
@@ -330,10 +353,8 @@ class RuntimeBrowserService:
             if press_enter:
                 await cdp.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter"})
                 await cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Enter", "code": "Enter"})
-            await asyncio.sleep(0.2)
-            data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+
+            return {"success": True, "message": "ok", "data": None}
 
     async def _wait_for_selector(self, selector: str, text_contains: str | None, timeout_ms: int) -> dict[str, Any]:
         if not selector:
@@ -357,9 +378,7 @@ class RuntimeBrowserService:
                     }})()""",
                 )
                 if matched:
-                    data = await self._collect_page_snapshot(cdp)
-                    data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-                    return {"success": True, "message": "ok", "data": data}
+                    return {"success": True, "message": "ok", "data": None}
                 await asyncio.sleep(0.25)
             return {"success": False, "message": f"selector wait timeout: {selector}", "data": {}}
 
@@ -371,29 +390,35 @@ class RuntimeBrowserService:
                 cdp,
                 f"""(() => {{
                     const rows = [];
-                    const pushNode = (el, role, name, level) => {{
-                        if (!el || rows.length >= {max(10, max_nodes)}) return;
-                        rows.push({{
-                          role,
-                          name: (name || '').trim(),
-                          level,
-                        }});
-                    }};
                     const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_ELEMENT);
                     let node = walker.currentNode;
-                    let level = 0;
                     while (node && rows.length < {max(10, max_nodes)}) {{
                         const role = node.getAttribute?.('role') || node.tagName?.toLowerCase?.() || 'node';
                         const name = node.getAttribute?.('aria-label') || node.innerText || node.textContent || '';
-                        pushNode(node, role, String(name).slice(0, 120), level);
+                        rows.push({{
+                          role,
+                          name: String(name).slice(0, 120).trim(),
+                        }});
                         node = walker.nextNode();
                     }}
                     return rows;
                 }})()""",
             )
-            data = {"nodes": tree if isinstance(tree, list) else []}
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+            return {
+                "success": True,
+                "message": "ok",
+                "data": {"nodes": tree if isinstance(tree, list) else []},
+            }
+
+    async def _move_mouse(self, coordinate_x: Any, coordinate_y: Any) -> dict[str, Any]:
+        if coordinate_x is None or coordinate_y is None:
+            return {"success": False, "message": "coordinate_x and coordinate_y are required", "data": {}}
+        async with await self._open_session() as cdp:
+            await cdp.call(
+                "Input.dispatchMouseEvent",
+                {"type": "mouseMoved", "x": float(coordinate_x), "y": float(coordinate_y)},
+            )
+            return {"success": True, "message": "ok", "data": None}
 
     async def _press_key(self, key: str) -> dict[str, Any]:
         if not key:
@@ -401,9 +426,29 @@ class RuntimeBrowserService:
         async with await self._open_session() as cdp:
             await cdp.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": key, "code": key})
             await cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": key, "code": key})
-            data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+            return {"success": True, "message": "ok", "data": None}
+
+    async def _select_option(self, index: Any, option: Any) -> dict[str, Any]:
+        if index is None or option is None:
+            return {"success": False, "message": "index and option are required", "data": {}}
+        async with await self._open_session() as cdp:
+            await cdp.call("Page.enable")
+            await cdp.call("Runtime.enable")
+            selected = await self._evaluate(
+                cdp,
+                f"""(() => {{
+                    const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
+                    if (!target) return false;
+                    if (!(target instanceof HTMLSelectElement)) return false;
+                    target.selectedIndex = {int(option)};
+                    target.dispatchEvent(new Event('input', {{bubbles: true}}));
+                    target.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    return true;
+                }})()""",
+            )
+            if not selected:
+                return {"success": False, "message": f"selector element not found or invalid: {index}", "data": {}}
+            return {"success": True, "message": "ok", "data": None}
 
     async def _scroll(self, down: bool, to_boundary: bool) -> dict[str, Any]:
         async with await self._open_session() as cdp:
@@ -412,12 +457,9 @@ class RuntimeBrowserService:
             if to_boundary:
                 script = "window.scrollTo(0, document.body.scrollHeight);" if down else "window.scrollTo(0, 0);"
             else:
-                script = "window.scrollBy(0, window.innerHeight * 0.8);" if down else "window.scrollBy(0, -window.innerHeight * 0.8);"
+                script = "window.scrollBy(0, window.innerHeight);" if down else "window.scrollBy(0, -window.innerHeight);"
             await self._evaluate(cdp, script)
-            await asyncio.sleep(0.2)
-            data = await self._collect_page_snapshot(cdp)
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+            return {"success": True, "message": "ok", "data": None}
 
     async def _console_exec(self, javascript: str) -> dict[str, Any]:
         if not javascript.strip():
@@ -426,11 +468,24 @@ class RuntimeBrowserService:
             await cdp.call("Page.enable")
             await cdp.call("Runtime.enable")
             value = await self._evaluate(cdp, javascript, await_promise=True)
-            data = await self._collect_page_snapshot(cdp)
-            data["script_result"] = value
-            data["screenshot"] = await self._capture_screenshot_data_url(cdp)
-            return {"success": True, "message": "ok", "data": data}
+            return {"success": True, "message": "ok", "data": {"result": value}}
+
+    async def _console_view(self, max_lines: Any) -> dict[str, Any]:
+        async with await self._open_session() as cdp:
+            await cdp.call("Page.enable")
+            await cdp.call("Runtime.enable")
+            logs = await self._evaluate(cdp, "window.console.logs || []")
+            if not isinstance(logs, list):
+                logs = []
+            if max_lines is not None:
+                logs = logs[-max(0, int(max_lines)) :]
+            return {"success": True, "message": "ok", "data": {"logs": logs}}
+
+    async def _screenshot(self, full_page: bool) -> dict[str, Any]:
+        async with await self._open_session() as cdp:
+            await cdp.call("Page.enable")
+            image = await self._capture_screenshot_bytes(cdp, full_page=full_page)
+            return {"success": True, "message": "ok", "data": {"bytes": image}}
 
 
 runtime_browser_service = RuntimeBrowserService()
-

@@ -34,4 +34,5 @@ class MessageToolkit(BaseToolkit):
             attachments: Optional attachments list.
             suggest_user_takeover: Optional takeover hint.
         """
-        return ToolResult(success=True, data={"text": text, "attachments": attachments})
+        _ = (text, attachments, suggest_user_takeover)
+        return ToolResult(success=True)

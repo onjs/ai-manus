@@ -24,7 +24,7 @@ class RuntimeAgentService:
         model_kwargs = self._gateway_runtime.get_chat_model_kwargs(session_id)
         tools = [
             ShellToolkit(),
-            BrowserToolkit(),
+            BrowserToolkit(model_kwargs=model_kwargs),
             FileToolkit(),
             MessageToolkit(),
             MCPToolkit(),

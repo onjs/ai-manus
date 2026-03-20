@@ -5,6 +5,11 @@ from functools import lru_cache
 logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
+    # Model defaults (used when creating session agent metadata)
+    model_name: str = "gpt-4o-mini"
+    temperature: float = 0.7
+    max_tokens: int = 2000
+
     # Gateway runtime configuration
     gateway_base_url: str | None = None
     gateway_api_key: str | None = None

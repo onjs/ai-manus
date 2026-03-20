@@ -54,6 +54,7 @@ class RuntimeService:
             "temperature": settings.TEMPERATURE,
             "max_tokens": settings.MAX_TOKENS,
             "base_url": f"{str(credential['gateway_base_url']).rstrip('/')}/v1",
+            "api_key": credential["gateway_token"],
             "default_headers": {"Authorization": f"Bearer {credential['gateway_token']}"},
         }
 

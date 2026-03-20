@@ -2,7 +2,7 @@ from typing import Any, AsyncGenerator, Dict
 
 import httpx
 
-from app.infrastructure.providers.base_provider import BaseLLMProvider
+from app.infrastructure.providers.base_provider import BaseLLMProvider, UpstreamProviderError
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
@@ -36,15 +36,32 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             request_payload["stream"] = force_stream
         return request_payload
 
+    @staticmethod
+    def _raise_with_upstream_detail(exc: httpx.HTTPStatusError) -> None:
+        response = exc.response
+        status_code = int(response.status_code) if response is not None else 502
+        detail = str(exc)
+        if response is not None:
+            try:
+                body = response.text
+            except Exception:
+                body = ""
+            if body:
+                detail = body
+        raise UpstreamProviderError(status_code=status_code, detail=detail) from exc
+
     async def create_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._api_base}/chat/completions"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                url,
-                headers=self._headers(),
-                json=self._build_payload(payload, force_stream=False),
-            )
-            response.raise_for_status()
+            try:
+                response = await client.post(
+                    url,
+                    headers=self._headers(),
+                    json=self._build_payload(payload, force_stream=False),
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                self._raise_with_upstream_detail(exc)
             body = response.json()
             if not isinstance(body, dict):
                 raise ValueError("upstream chat completions response must be JSON object")
@@ -59,7 +76,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 headers=self._headers(),
                 json=self._build_payload(payload, force_stream=True),
             ) as response:
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    self._raise_with_upstream_detail(exc)
                 async for chunk in response.aiter_raw():
                     if not chunk:
                         continue

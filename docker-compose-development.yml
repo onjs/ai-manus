@@ -105,6 +105,8 @@ services:
       - "5900:5900"
       - "5901:5901"
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       - UVI_ARGS="--reload"
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}

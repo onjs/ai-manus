@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.auth import require_scope
 from app.core.config import Settings, get_settings
-from app.infrastructure.providers.base_provider import BaseLLMProvider
+from app.infrastructure.providers.base_provider import BaseLLMProvider, UpstreamProviderError
 from app.infrastructure.providers.factory import ProviderFactory
 
 router = APIRouter(tags=["openai"])
@@ -38,12 +38,15 @@ async def chat_completions(
     payload = _validate_chat_payload(await request.json())
     stream = bool(payload.get("stream"))
 
-    if stream:
-        return StreamingResponse(
-            provider.stream_chat_completion(payload),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-        )
+    try:
+        if stream:
+            return StreamingResponse(
+                provider.stream_chat_completion(payload),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+            )
 
-    data = await provider.create_chat_completion(payload)
-    return JSONResponse(content=data)
+        data = await provider.create_chat_completion(payload)
+        return JSONResponse(content=data)
+    except UpstreamProviderError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
