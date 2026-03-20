@@ -120,9 +120,9 @@ class BrowserToolkit(BaseToolkit):
     name: str = "browser"
 
     def __init__(self, model_kwargs: Optional[Dict[str, Any]] = None):
+        super().__init__()
         self.browser = RuntimeBrowserAdapter()
         self.browser_engine = BrowserEngine(self.browser, model_kwargs=model_kwargs)
-        super().__init__()
 
     @tool(parse_docstring=True)
     async def browser_view(self) -> ToolResult:
