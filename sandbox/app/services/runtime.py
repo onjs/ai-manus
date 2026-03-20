@@ -35,7 +35,11 @@ class RuntimeService:
         return self._store.has_gateway_credential(session_id)
 
     def get_chat_model_kwargs(self, session_id: str) -> dict[str, Any]:
-        credential = self._store.get_gateway_credential(session_id)
+        try:
+            credential = self._store.get_gateway_credential(session_id)
+        except ValueError:
+            self._store.clear_gateway_credential(session_id)
+            raise RuntimeError("Gateway credential is invalid") from None
         if credential is None:
             raise RuntimeError("Gateway runtime is not configured for this session")
 
