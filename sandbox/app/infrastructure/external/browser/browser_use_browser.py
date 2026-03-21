@@ -1,6 +1,6 @@
+from typing import Any, Optional, List
 import asyncio
 import logging
-from typing import Any, Optional, List
 
 from browser_use.browser.session import BrowserSession, CDPSession
 from browser_use.dom.views import EnhancedDOMTreeNode
@@ -11,13 +11,22 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserUseBrowser:
-    """Browser implementation using browser_use (aligned with source backend)."""
+    """Browser implementation using the browser_use library (BrowserSession + CDP).
+
+    Connects to an existing Chrome instance via CDP URL and exposes the same
+    interface as PlaywrightBrowser so it can be used as a drop-in replacement.
+    """
 
     def __init__(self, cdp_url: str):
         self.cdp_url = cdp_url
         self._session: Optional[BrowserSession] = None
 
+    # ------------------------------------------------------------------
+    # Session lifecycle
+    # ------------------------------------------------------------------
+
     async def _ensure_session(self) -> BrowserSession:
+        """Return a started BrowserSession, initialising it if necessary."""
         if self._session is not None:
             return self._session
 
@@ -59,6 +68,7 @@ class BrowserUseBrowser:
         raise last_error
 
     async def cleanup(self) -> None:
+        """Stop the browser session and release resources."""
         if self._session is not None:
             try:
                 await self._session.stop()
@@ -67,7 +77,12 @@ class BrowserUseBrowser:
             finally:
                 self._session = None
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
     async def _get_current_page(self):
+        """Return the actor Page for the currently focused tab."""
         session = await self._ensure_session()
         page = await session.get_current_page()
         if page is None:
@@ -75,10 +90,12 @@ class BrowserUseBrowser:
         return page
 
     async def _get_cdp_session(self) -> CDPSession:
+        """Return the CDPSession for the currently focused tab."""
         session = await self._ensure_session()
         return await session.get_or_create_cdp_session()
 
     async def _get_interactive_elements(self) -> List[str]:
+        """Return a formatted list of interactive elements from the DOM selector map."""
         try:
             session = await self._ensure_session()
             selector_map: dict[int, EnhancedDOMTreeNode] = await session.get_selector_map()
@@ -109,6 +126,7 @@ class BrowserUseBrowser:
         button: str = "none",
         click_count: int = 0,
     ) -> None:
+        """Send a raw CDP mouse event to the currently focused tab."""
         cdp_sess = await self._get_cdp_session()
         params: dict[str, Any] = {
             "type": event_type,
@@ -122,31 +140,47 @@ class BrowserUseBrowser:
             session_id=str(cdp_sess.session_id),
         )
 
+    # ------------------------------------------------------------------
+    # Browser Protocol implementation
+    # ------------------------------------------------------------------
+
     async def view_page(self) -> ToolResult:
+        """Return the current page content and interactive elements."""
         try:
             session = await self._ensure_session()
             state = await session.get_browser_state_summary(include_screenshot=False)
+
             interactive_elements = await self._get_interactive_elements()
+
             content = ""
             if state.dom_state is not None:
                 content = state.dom_state.llm_representation()
+
             return ToolResult(
                 success=True,
-                data={"interactive_elements": interactive_elements, "content": content},
+                data={
+                    "interactive_elements": interactive_elements,
+                    "content": content,
+                },
             )
         except Exception as exc:
             return ToolResult(success=False, message=f"Failed to view page: {exc}")
 
     async def navigate(self, url: str) -> ToolResult:
+        """Navigate to the given URL."""
         try:
             session = await self._ensure_session()
             await session.navigate_to(url)
             interactive_elements = await self._get_interactive_elements()
-            return ToolResult(success=True, data={"interactive_elements": interactive_elements})
+            return ToolResult(
+                success=True,
+                data={"interactive_elements": interactive_elements},
+            )
         except Exception as exc:
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {exc}")
 
     async def restart(self, url: str) -> ToolResult:
+        """Restart the browser session and navigate to the given URL."""
         await self.cleanup()
         return await self.navigate(url)
 
@@ -156,15 +190,23 @@ class BrowserUseBrowser:
         coordinate_x: Optional[float] = None,
         coordinate_y: Optional[float] = None,
     ) -> ToolResult:
+        """Click an element by DOM index or by screen coordinates."""
         try:
             if coordinate_x is not None and coordinate_y is not None:
-                await self._dispatch_mouse_event("mousePressed", coordinate_x, coordinate_y, "left", 1)
-                await self._dispatch_mouse_event("mouseReleased", coordinate_x, coordinate_y, "left", 1)
+                await self._dispatch_mouse_event(
+                    "mousePressed", coordinate_x, coordinate_y, "left", 1
+                )
+                await self._dispatch_mouse_event(
+                    "mouseReleased", coordinate_x, coordinate_y, "left", 1
+                )
             elif index is not None:
                 session = await self._ensure_session()
                 node = await session.get_dom_element_by_index(index)
                 if node is None:
-                    return ToolResult(success=False, message=f"Cannot find interactive element with index {index}")
+                    return ToolResult(
+                        success=False,
+                        message=f"Cannot find interactive element with index {index}",
+                    )
                 page = await self._get_current_page()
                 element = await page.get_element(node.backend_node_id)
                 await element.click()
@@ -180,11 +222,18 @@ class BrowserUseBrowser:
         coordinate_x: Optional[float] = None,
         coordinate_y: Optional[float] = None,
     ) -> ToolResult:
+        """Type text into an element identified by DOM index or screen coordinates."""
         try:
             page = await self._get_current_page()
+
             if coordinate_x is not None and coordinate_y is not None:
-                await self._dispatch_mouse_event("mousePressed", coordinate_x, coordinate_y, "left", 1)
-                await self._dispatch_mouse_event("mouseReleased", coordinate_x, coordinate_y, "left", 1)
+                # Click first to focus, then insert text via CDP
+                await self._dispatch_mouse_event(
+                    "mousePressed", coordinate_x, coordinate_y, "left", 1
+                )
+                await self._dispatch_mouse_event(
+                    "mouseReleased", coordinate_x, coordinate_y, "left", 1
+                )
                 cdp_sess = await self._get_cdp_session()
                 await cdp_sess.cdp_client.send.Input.insertText(
                     params={"text": text},
@@ -194,16 +243,26 @@ class BrowserUseBrowser:
                 session = await self._ensure_session()
                 node = await session.get_dom_element_by_index(index)
                 if node is None:
-                    return ToolResult(success=False, message=f"Cannot find interactive element with index {index}")
+                    return ToolResult(
+                        success=False,
+                        message=f"Cannot find interactive element with index {index}",
+                    )
                 element = await page.get_element(node.backend_node_id)
                 await element.fill(text)
+
             if press_enter:
                 await page.press("Enter")
+
             return ToolResult(success=True)
         except Exception as exc:
             return ToolResult(success=False, message=f"Failed to input text: {exc}")
 
-    async def move_mouse(self, coordinate_x: float, coordinate_y: float) -> ToolResult:
+    async def move_mouse(
+        self,
+        coordinate_x: float,
+        coordinate_y: float,
+    ) -> ToolResult:
+        """Move the mouse cursor to the given coordinates."""
         try:
             await self._dispatch_mouse_event("mouseMoved", coordinate_x, coordinate_y)
             return ToolResult(success=True)
@@ -211,6 +270,7 @@ class BrowserUseBrowser:
             return ToolResult(success=False, message=f"Failed to move mouse: {exc}")
 
     async def press_key(self, key: str) -> ToolResult:
+        """Simulate a key press."""
         try:
             page = await self._get_current_page()
             await page.press(key)
@@ -219,11 +279,15 @@ class BrowserUseBrowser:
             return ToolResult(success=False, message=f"Failed to press key: {exc}")
 
     async def select_option(self, index: int, option: int) -> ToolResult:
+        """Select an option in a <select> element by DOM index."""
         try:
             session = await self._ensure_session()
             node = await session.get_dom_element_by_index(index)
             if node is None:
-                return ToolResult(success=False, message=f"Cannot find selector element with index {index}")
+                return ToolResult(
+                    success=False,
+                    message=f"Cannot find selector element with index {index}",
+                )
             page = await self._get_current_page()
             element = await page.get_element(node.backend_node_id)
             await element.select_option(str(option))
@@ -232,6 +296,7 @@ class BrowserUseBrowser:
             return ToolResult(success=False, message=f"Failed to select option: {exc}")
 
     async def scroll_up(self, to_top: Optional[bool] = None) -> ToolResult:
+        """Scroll the page upward (or to the very top when to_top is True)."""
         try:
             page = await self._get_current_page()
             if to_top:
@@ -243,6 +308,7 @@ class BrowserUseBrowser:
             return ToolResult(success=False, message=f"Failed to scroll up: {exc}")
 
     async def scroll_down(self, to_bottom: Optional[bool] = None) -> ToolResult:
+        """Scroll the page downward (or to the very bottom when to_bottom is True)."""
         try:
             page = await self._get_current_page()
             if to_bottom:
@@ -254,12 +320,15 @@ class BrowserUseBrowser:
             return ToolResult(success=False, message=f"Failed to scroll down: {exc}")
 
     async def screenshot(self, full_page: Optional[bool] = False) -> bytes:
+        """Return a PNG screenshot of the current page."""
         session = await self._ensure_session()
         return await session.take_screenshot(full_page=bool(full_page))
 
     async def console_exec(self, javascript: str) -> ToolResult:
+        """Execute arbitrary JavaScript in the current page context."""
         try:
             page = await self._get_current_page()
+            # browser_use actor Page.evaluate() requires arrow-function syntax
             js = javascript.strip()
             if not (js.startswith("(") and "=>" in js):
                 js = f"() => {{ {js} }}"
@@ -269,6 +338,7 @@ class BrowserUseBrowser:
             return ToolResult(success=False, message=f"Failed to execute JavaScript: {exc}")
 
     async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:
+        """Return captured console log lines from the current page."""
         try:
             page = await self._get_current_page()
             logs_raw = await page.evaluate("() => window.console.logs || []")
@@ -282,85 +352,7 @@ class BrowserUseBrowser:
 
             if max_lines is not None and isinstance(logs, list):
                 logs = logs[-max_lines:]
+
             return ToolResult(success=True, data={"logs": logs})
         except Exception as exc:
             return ToolResult(success=False, message=f"Failed to view console: {exc}")
-
-
-class RuntimeBrowserService:
-    def __init__(self, cdp_url: str = "http://127.0.0.1:9222"):
-        self._browser = BrowserUseBrowser(cdp_url)
-        self._lock = asyncio.Lock()
-
-    @staticmethod
-    def _to_payload(result: ToolResult) -> dict[str, Any]:
-        return {
-            "success": bool(result.success),
-            "message": result.message or "",
-            "data": result.data,
-        }
-
-    async def execute(self, function_name: str, function_args: dict[str, Any]) -> dict[str, Any]:
-        fn = (function_name or "").strip()
-        args = function_args or {}
-        async with self._lock:
-            if fn == "browser_view":
-                return self._to_payload(await self._browser.view_page())
-            if fn == "browser_navigate":
-                return self._to_payload(await self._browser.navigate(str(args.get("url") or "").strip()))
-            if fn == "browser_restart":
-                return self._to_payload(await self._browser.restart(str(args.get("url") or "").strip()))
-            if fn == "browser_click":
-                return self._to_payload(
-                    await self._browser.click(
-                        index=args.get("index"),
-                        coordinate_x=args.get("coordinate_x"),
-                        coordinate_y=args.get("coordinate_y"),
-                    )
-                )
-            if fn == "browser_input":
-                return self._to_payload(
-                    await self._browser.input(
-                        text=str(args.get("text") or ""),
-                        press_enter=bool(args.get("press_enter", False)),
-                        index=args.get("index"),
-                        coordinate_x=args.get("coordinate_x"),
-                        coordinate_y=args.get("coordinate_y"),
-                    )
-                )
-            if fn == "browser_move_mouse":
-                return self._to_payload(
-                    await self._browser.move_mouse(
-                        coordinate_x=float(args.get("coordinate_x")),
-                        coordinate_y=float(args.get("coordinate_y")),
-                    )
-                )
-            if fn == "browser_press_key":
-                return self._to_payload(await self._browser.press_key(str(args.get("key") or "")))
-            if fn == "browser_select_option":
-                return self._to_payload(
-                    await self._browser.select_option(
-                        index=int(args.get("index")),
-                        option=int(args.get("option")),
-                    )
-                )
-            if fn == "browser_scroll_down":
-                return self._to_payload(await self._browser.scroll_down(to_bottom=bool(args.get("to_bottom", False))))
-            if fn == "browser_scroll_up":
-                return self._to_payload(await self._browser.scroll_up(to_top=bool(args.get("to_top", False))))
-            if fn == "browser_console_exec":
-                return self._to_payload(await self._browser.console_exec(str(args.get("javascript") or "")))
-            if fn == "browser_console_view":
-                max_lines = args.get("max_lines")
-                return self._to_payload(
-                    await self._browser.console_view(
-                        max_lines=int(max_lines) if max_lines is not None else None
-                    )
-                )
-            if fn == "browser_screenshot":
-                image = await self._browser.screenshot(full_page=bool(args.get("full_page", False)))
-                return {"success": True, "message": "", "data": {"bytes": image}}
-            return {"success": False, "message": f"Unsupported browser function: {fn}", "data": {}}
-
-
-runtime_browser_service = RuntimeBrowserService()

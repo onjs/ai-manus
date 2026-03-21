@@ -1,6 +1,5 @@
 from typing import Any, Optional, Protocol, BinaryIO, AsyncGenerator
 from app.domain.models.tool_result import ToolResult
-from app.domain.external.browser import Browser
 
 class Sandbox(Protocol):
     """Sandbox service gateway interface"""
@@ -255,22 +254,9 @@ class Sandbox(Protocol):
         """
         ...
     
-    async def get_browser(self) -> Browser:
-        """Get browser instance
-        
-        Returns:
-            Browser: Returns a configured browser instance for web automation
-        """
-        ...
-
     @property
     def id(self) -> str:
         """Sandbox ID"""
-        ...
-
-    @property
-    def cdp_url(self) -> str:
-        """CDP URL"""
         ...
 
     @property

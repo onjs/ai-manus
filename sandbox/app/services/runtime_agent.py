@@ -1,101 +1,34 @@
 from __future__ import annotations
 
+import base64
+import logging
 from typing import Any, AsyncGenerator, Optional
 
 from app.domain.external.browser import Browser
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
-from app.domain.models.event import AgentEvent, ErrorEvent
+from app.domain.models.event import AgentEvent, BrowserToolContent, ErrorEvent, ToolEvent, ToolStatus
 from app.domain.models.message import Message
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.tools.mcp import MCPToolkit
+from app.core.config import settings
+from app.infrastructure.external.browser.browser_use_browser import BrowserUseBrowser
+from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 from app.infrastructure.repositories.in_memory_agent_repository import in_memory_agent_repository
 from app.infrastructure.repositories.runtime_session_repository import runtime_session_repository
 from app.services.file import file_service
 from app.services.runtime import RuntimeService
-from app.services.runtime_browser import runtime_browser_service
 from app.services.runtime_search import runtime_search_service
 from app.services.shell import shell_service
 
-
-class RuntimeBrowserAdapter(Browser):
-    async def _exec(self, function_name: str, function_args: dict[str, Any]) -> ToolResult:
-        result = await runtime_browser_service.execute(function_name=function_name, function_args=function_args)
-        return ToolResult(**result)
-
-    async def view_page(self) -> ToolResult:
-        return await self._exec("browser_view", {})
-
-    async def navigate(self, url: str) -> ToolResult:
-        return await self._exec("browser_navigate", {"url": url})
-
-    async def restart(self, url: str) -> ToolResult:
-        return await self._exec("browser_restart", {"url": url})
-
-    async def click(
-        self,
-        index: Optional[int] = None,
-        coordinate_x: Optional[float] = None,
-        coordinate_y: Optional[float] = None,
-    ) -> ToolResult:
-        return await self._exec(
-            "browser_click",
-            {"index": index, "coordinate_x": coordinate_x, "coordinate_y": coordinate_y},
-        )
-
-    async def input(
-        self,
-        text: str,
-        press_enter: bool,
-        index: Optional[int] = None,
-        coordinate_x: Optional[float] = None,
-        coordinate_y: Optional[float] = None,
-    ) -> ToolResult:
-        return await self._exec(
-            "browser_input",
-            {
-                "text": text,
-                "press_enter": press_enter,
-                "index": index,
-                "coordinate_x": coordinate_x,
-                "coordinate_y": coordinate_y,
-            },
-        )
-
-    async def move_mouse(self, coordinate_x: float, coordinate_y: float) -> ToolResult:
-        return await self._exec("browser_move_mouse", {"coordinate_x": coordinate_x, "coordinate_y": coordinate_y})
-
-    async def press_key(self, key: str) -> ToolResult:
-        return await self._exec("browser_press_key", {"key": key})
-
-    async def select_option(self, index: int, option: int) -> ToolResult:
-        return await self._exec("browser_select_option", {"index": index, "option": option})
-
-    async def scroll_up(self, to_top: Optional[bool] = None) -> ToolResult:
-        return await self._exec("browser_scroll_up", {"to_top": to_top})
-
-    async def scroll_down(self, to_bottom: Optional[bool] = None) -> ToolResult:
-        return await self._exec("browser_scroll_down", {"to_bottom": to_bottom})
-
-    async def screenshot(self, full_page: Optional[bool] = False) -> bytes:
-        result = await self._exec("browser_screenshot", {"full_page": bool(full_page)})
-        if not result.success:
-            raise RuntimeError(result.message or "browser_screenshot failed")
-        data = result.data if isinstance(result.data, dict) else {}
-        screenshot = data.get("bytes")
-        if isinstance(screenshot, bytes):
-            return screenshot
-        raise RuntimeError("browser_screenshot returned invalid payload")
-
-    async def console_exec(self, javascript: str) -> ToolResult:
-        return await self._exec("browser_console_exec", {"javascript": javascript})
-
-    async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:
-        return await self._exec("browser_console_view", {"max_lines": max_lines})
+logger = logging.getLogger(__name__)
 
 
 class RuntimeSandboxAdapter(Sandbox):
+    def __init__(self, browser: Browser):
+        self._browser = browser
+
     async def ensure_sandbox(self) -> None:
         return None
 
@@ -209,7 +142,7 @@ class RuntimeSandboxAdapter(Sandbox):
         return False
 
     async def get_browser(self) -> Browser:
-        return RuntimeBrowserAdapter()
+        return self._browser
 
 
 class RuntimeSearchAdapter(SearchEngine):
@@ -224,6 +157,17 @@ class RuntimeAgentService:
     def __init__(self, gateway_runtime: RuntimeService):
         self._gateway_runtime = gateway_runtime
         self._agent_repository = in_memory_agent_repository
+        self._browser: Browser = self._create_browser()
+
+    @staticmethod
+    def _create_browser() -> Browser:
+        cdp_url = "http://127.0.0.1:9222"
+        engine = (settings.BROWSER_ENGINE or "playwright").strip().lower()
+        if engine == "browser_use":
+            logger.info("Runtime agent using BrowserUseBrowser (%s)", cdp_url)
+            return BrowserUseBrowser(cdp_url)
+        logger.info("Runtime agent using PlaywrightBrowser (%s)", cdp_url)
+        return PlaywrightBrowser(cdp_url)
 
     def _build_flow(self, *, session_id: str, agent_id: str) -> PlanActFlow:
         model_kwargs = self._gateway_runtime.get_chat_model_kwargs(session_id)
@@ -232,12 +176,28 @@ class RuntimeAgentService:
             agent_repository=self._agent_repository,
             session_id=session_id,
             session_repository=runtime_session_repository,
-            sandbox=RuntimeSandboxAdapter(),
-            browser=RuntimeBrowserAdapter(),
+            sandbox=RuntimeSandboxAdapter(self._browser),
+            browser=self._browser,
             mcp_tool=MCPToolkit(),
             search_engine=RuntimeSearchAdapter(),
             model_kwargs=model_kwargs,
         )
+
+    async def _enrich_tool_event(self, event: AgentEvent) -> AgentEvent:
+        if not isinstance(event, ToolEvent):
+            return event
+        if event.tool_name != "browser" or event.status != ToolStatus.CALLED:
+            return event
+        if event.tool_content is not None:
+            return event
+
+        try:
+            image_bytes = await self._browser.screenshot(full_page=False)
+            screenshot = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
+            return event.model_copy(update={"tool_content": BrowserToolContent(screenshot=screenshot)})
+        except Exception as exc:
+            logger.warning("Failed to capture browser screenshot for tool event: %s", exc)
+            return event
 
     @classmethod
     def _map_event(cls, event: AgentEvent) -> tuple[str, dict[str, Any]]:
@@ -269,6 +229,7 @@ class RuntimeAgentService:
             )
             flow = self._build_flow(session_id=session_id, agent_id=agent_id)
             async for event in flow.run(Message(message=user_message, attachments=list(attachments or []))):
+                event = await self._enrich_tool_event(event)
                 yield self._map_event(event)
         except Exception as e:
             err = ErrorEvent(error=str(e))

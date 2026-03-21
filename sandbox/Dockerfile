@@ -69,11 +69,10 @@ RUN apt-get ${APT_FLAGS} update && apt-get ${APT_FLAGS} install -y \
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu
 
-# Install Python 3.12
+# Install Python 3.11
 RUN add-apt-repository ppa:deadsnakes/ppa && \
     apt-get ${APT_FLAGS} update && \
-    apt-get ${APT_FLAGS} install -y python3.12 python3.12-venv python3.12-dev python3-pip && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+    apt-get ${APT_FLAGS} install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -119,8 +118,8 @@ WORKDIR /app
 # Copy dependency files first for better layer cache hit
 COPY pyproject.toml uv.lock ./
 
-# Install Python dependencies
-RUN uv sync --no-dev
+# Install Python dependencies (browser-use requires >=3.11)
+RUN UV_PYTHON=/usr/bin/python3.11 uv sync --no-dev
 
 # Copy source code
 COPY . .

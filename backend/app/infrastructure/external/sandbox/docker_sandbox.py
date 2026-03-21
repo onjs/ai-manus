@@ -11,9 +11,6 @@ from async_lru import alru_cache
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
 from app.domain.external.sandbox import Sandbox
-from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
-from app.infrastructure.external.browser.browser_use_browser import BrowserUseBrowser
-from app.domain.external.browser import Browser
 from app.infrastructure.external.gateway.client import GatewayStreamEvent
 
 logger = logging.getLogger(__name__)
@@ -25,7 +22,6 @@ class DockerSandbox(Sandbox):
         self.ip = ip
         self.base_url = f"http://{self.ip}:8080"
         self._vnc_url = f"ws://{self.ip}:5901"
-        self._cdp_url = f"http://{self.ip}:9222"
         self._container_name = container_name
     
     @property
@@ -35,11 +31,6 @@ class DockerSandbox(Sandbox):
             return "dev-sandbox"
         return self._container_name
     
-    
-    @property
-    def cdp_url(self) -> str:
-        return self._cdp_url
-
     @property
     def vnc_url(self) -> str:
         return self._vnc_url
@@ -578,22 +569,6 @@ class DockerSandbox(Sandbox):
             logger.error(f"Failed to destroy Docker sandbox: {str(e)}")
             return False
     
-    async def get_browser(self) -> Browser:
-        """Get browser instance
-
-        Returns a browser implementation connected to the sandbox's Chrome via CDP.
-        The concrete implementation is selected by the BROWSER_ENGINE setting:
-          - "playwright"   → PlaywrightBrowser  (default)
-          - "browser_use"  → BrowserUseBrowser
-        """
-        settings = get_settings()
-        engine = (settings.browser_engine or "playwright").lower().strip()
-        if engine == "browser_use":
-            logger.info("Using BrowserUseBrowser engine for CDP URL: %s", self.cdp_url)
-            return BrowserUseBrowser(self.cdp_url)
-        logger.info("Using PlaywrightBrowser engine for CDP URL: %s", self.cdp_url)
-        return PlaywrightBrowser(self.cdp_url)
-
     @staticmethod
     @alru_cache(maxsize=128, typed=True)
     async def _resolve_hostname_to_ip(hostname: str) -> str:
@@ -640,7 +615,8 @@ class DockerSandbox(Sandbox):
         settings = get_settings()
 
         if settings.sandbox_address:
-            return DockerSandbox(ip=settings.sandbox_address)
+            resolved_ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
+            return DockerSandbox(ip=resolved_ip or settings.sandbox_address)
     
         return await asyncio.to_thread(DockerSandbox._create_task)
     
@@ -657,7 +633,8 @@ class DockerSandbox(Sandbox):
         """
         settings = get_settings()
         if settings.sandbox_address:
-            return DockerSandbox(ip=settings.sandbox_address, container_name=id)
+            resolved_ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
+            return DockerSandbox(ip=resolved_ip or settings.sandbox_address, container_name=id)
 
         docker_client = docker.from_env()
         container = docker_client.containers.get(id)

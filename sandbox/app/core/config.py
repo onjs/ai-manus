@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     MODEL_PROVIDER: str = "openai"
     TEMPERATURE: float = 0.7
     MAX_TOKENS: int = 2000
+    API_BASE: Optional[str] = None
+    EXTRA_HEADERS: Optional[Dict[str, str]] = None
+    BROWSER_ENGINE: str = "playwright"
     AGENT_MODEL_MAX_ITERATIONS: int = 100
     AGENT_MODEL_MAX_RETRIES: int = 3
     AGENT_MODEL_RETRY_INTERVAL_SECONDS: float = 1.0
@@ -50,5 +53,50 @@ class Settings(BaseSettings):
             raise ValueError("SANDBOX_INTERNAL_API_KEY is required")
         return self
 
+    @field_validator("EXTRA_HEADERS", mode="before")
+    def parse_extra_headers(cls, v: Any) -> Optional[Dict[str, str]]:
+        if v is None or v == "":
+            return None
+        if isinstance(v, dict):
+            return {str(k): str(vv) for k, vv in v.items()}
+        if isinstance(v, str):
+            import json
+            parsed = json.loads(v)
+            if isinstance(parsed, dict):
+                return {str(k): str(vv) for k, vv in parsed.items()}
+        raise ValueError("EXTRA_HEADERS must be a JSON object")
 
-settings = Settings() 
+    @property
+    def model_name(self) -> str:
+        return self.MODEL_NAME
+
+    @property
+    def model_provider(self) -> str:
+        return self.MODEL_PROVIDER
+
+    @property
+    def temperature(self) -> float:
+        return self.TEMPERATURE
+
+    @property
+    def max_tokens(self) -> int:
+        return self.MAX_TOKENS
+
+    @property
+    def api_base(self) -> Optional[str]:
+        return self.API_BASE
+
+    @property
+    def extra_headers(self) -> Optional[Dict[str, str]]:
+        return self.EXTRA_HEADERS
+
+    @property
+    def browser_engine(self) -> str:
+        return self.BROWSER_ENGINE
+
+
+settings = Settings()
+
+
+def get_settings() -> Settings:
+    return settings

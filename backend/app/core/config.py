@@ -39,9 +39,6 @@ class Settings(BaseSettings):
     sandbox_http_proxy: str | None = None
     sandbox_no_proxy: str | None = None
 
-    # Browser engine configuration
-    browser_engine: str = "playwright"  # "playwright" or "browser_use"
-    
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"
     password_salt: str | None = None

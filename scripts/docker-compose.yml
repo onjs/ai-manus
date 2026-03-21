@@ -28,13 +28,32 @@ services:
           - linux/amd64
           - linux/arm64
     depends_on:
-      - sandbox
+      - gateway
       - mongodb
       - redis
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
+    networks:
+      - manus-network
+    env_file:
+      - .env
+    environment:
+      - GATEWAY_BASE_URL=${GATEWAY_BASE_URL:-http://gateway:8100}
+
+  gateway:
+    image: ${IMAGE_REGISTRY:-simpleyyt}/manus-gateway:${IMAGE_TAG:-latest}
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+      x-bake:
+        platforms:
+          - linux/amd64
+          - linux/arm64
+    depends_on:
+      - redis
+    restart: unless-stopped
     networks:
       - manus-network
     env_file:
