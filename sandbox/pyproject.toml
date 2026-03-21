@@ -3,8 +3,9 @@ name = "sandbox"
 version = "0.1.0"
 description = "Sandbox service for AI Manus"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
+    "browser-use>=0.12.1",
     "cryptography>=46.0.1",
     "email-validator>=2.3.0",
     "fastapi>=0.121.2",

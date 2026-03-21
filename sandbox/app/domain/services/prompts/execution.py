@@ -13,12 +13,6 @@ EXECUTION_PROMPT = """
 You are executing the task:
 {step}
 
-Goal Anchor:
-{goal_anchor}
-
-Step Ledger:
-{step_ledger}
-
 Note:
 - **It you that to do the task, not the user**
 - **You must use the language provided by user's message to execute the task**
@@ -29,14 +23,6 @@ Note:
 - If you need to ask user for input or take control of the browser, you must use message_ask_user tool to ask user for input
 - Don't tell how to do the task, determine by yourself.
 - Deliver the final result to user not the todo list, advice or plan
-- If task cannot continue due to external blocking conditions, still return valid JSON with success=false and provide blocked_reason.
-- For browser tasks involving multiple actions, dynamic menus, page transitions, or form filling, call browser_run_goal first instead of manually chaining many low-level browser actions.
-- For dynamic menus/dropdowns, use browser_hover_observe before browser_click to reveal hidden items.
-- After critical clicks, use browser_wait_for_selector to verify expected UI appears before continuing.
-- Never use shell_exec with commands like `sleep` to wait for browser/UI state changes.
-- For browser waiting, you must use browser_wait_for_selector (or browser_accessibility_snapshot when needed).
-- Use browser_accessibility_snapshot when DOM text is ambiguous or dynamically changing.
-- For complex enterprise form controls, prefer semantic field tools: browser_set_date_field / browser_set_select_field / browser_set_people_field.
 
 Return format requirements:
 - Must return JSON format that complies with the following TypeScript interface
@@ -48,11 +34,6 @@ TypeScript Interface Definition:
 interface Response {{
   /** Whether the task is executed successfully **/
   success: boolean;
-  /** Optional blocked reason code when success=false:
-   * login_required | captcha_required | permission_denied | rate_limited |
-   * system_unavailable | missing_prerequisite | manual_confirmation_required | unknown_blocked
-   **/
-  blocked_reason?: string;
   /** Array of file paths in sandbox for generated files to be delivered to user **/
   attachments: string[];
 

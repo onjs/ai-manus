@@ -1,527 +1,366 @@
 import asyncio
-import base64
-import json
-import time
-from typing import Any
+import logging
+from typing import Any, Optional, List
 
-import httpx
-import websockets
+from browser_use.browser.session import BrowserSession, CDPSession
+from browser_use.dom.views import EnhancedDOMTreeNode
+
+from app.domain.models.tool_result import ToolResult
+
+logger = logging.getLogger(__name__)
 
 
-class _CDPSession:
-    def __init__(self, ws_url: str):
-        self._ws_url = ws_url
-        self._ws = None
-        self._seq = 0
+class BrowserUseBrowser:
+    """Browser implementation using browser_use (aligned with source backend)."""
 
-    async def __aenter__(self) -> "_CDPSession":
-        self._ws = await websockets.connect(self._ws_url, max_size=8 * 1024 * 1024)
-        return self
+    def __init__(self, cdp_url: str):
+        self.cdp_url = cdp_url
+        self._session: Optional[BrowserSession] = None
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        if self._ws is not None:
-            await self._ws.close()
-            self._ws = None
+    async def _ensure_session(self) -> BrowserSession:
+        if self._session is not None:
+            return self._session
 
-    async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        if self._ws is None:
-            raise RuntimeError("CDP session is not connected")
-        self._seq += 1
-        req_id = self._seq
-        await self._ws.send(
-            json.dumps(
-                {
-                    "id": req_id,
-                    "method": method,
-                    "params": params or {},
-                },
-                ensure_ascii=False,
-            )
+        max_retries = 5
+        retry_delay = 1.0
+        last_error: Exception = RuntimeError("Unknown error")
+
+        for attempt in range(max_retries):
+            try:
+                session = BrowserSession(
+                    cdp_url=self.cdp_url,
+                    minimum_wait_page_load_time=0.5,
+                    wait_for_network_idle_page_load_time=2.0,
+                    highlight_elements=False,
+                )
+                await session.start()
+                self._session = session
+                return session
+            except Exception as exc:
+                last_error = exc
+                await self.cleanup()
+                if attempt == max_retries - 1:
+                    logger.error(
+                        "Failed to initialise BrowserSession after %d attempts: %s",
+                        max_retries,
+                        exc,
+                    )
+                    raise
+                retry_delay = min(retry_delay * 2, 10.0)
+                logger.warning(
+                    "BrowserSession init failed (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt + 1,
+                    max_retries,
+                    retry_delay,
+                    exc,
+                )
+                await asyncio.sleep(retry_delay)
+
+        raise last_error
+
+    async def cleanup(self) -> None:
+        if self._session is not None:
+            try:
+                await self._session.stop()
+            except Exception as exc:
+                logger.error("Error stopping BrowserSession: %s", exc)
+            finally:
+                self._session = None
+
+    async def _get_current_page(self):
+        session = await self._ensure_session()
+        page = await session.get_current_page()
+        if page is None:
+            page = await session.new_page()
+        return page
+
+    async def _get_cdp_session(self) -> CDPSession:
+        session = await self._ensure_session()
+        return await session.get_or_create_cdp_session()
+
+    async def _get_interactive_elements(self) -> List[str]:
+        try:
+            session = await self._ensure_session()
+            selector_map: dict[int, EnhancedDOMTreeNode] = await session.get_selector_map()
+            formatted: List[str] = []
+            for idx, node in sorted(selector_map.items()):
+                tag = node.tag_name or "element"
+                text = node.get_meaningful_text_for_llm() if hasattr(node, "get_meaningful_text_for_llm") else ""
+                if not text and node.attributes:
+                    text = (
+                        node.attributes.get("placeholder", "")
+                        or node.attributes.get("aria-label", "")
+                        or node.attributes.get("title", "")
+                        or ""
+                    )
+                if len(text) > 100:
+                    text = text[:97] + "..."
+                formatted.append(f"{idx}:<{tag}>{text}</{tag}>")
+            return formatted
+        except Exception as exc:
+            logger.warning("Failed to get interactive elements: %s", exc)
+            return []
+
+    async def _dispatch_mouse_event(
+        self,
+        event_type: str,
+        x: float,
+        y: float,
+        button: str = "none",
+        click_count: int = 0,
+    ) -> None:
+        cdp_sess = await self._get_cdp_session()
+        params: dict[str, Any] = {
+            "type": event_type,
+            "x": x,
+            "y": y,
+            "button": button,
+            "clickCount": click_count,
+        }
+        await cdp_sess.cdp_client.send.Input.dispatchMouseEvent(
+            params=params,
+            session_id=str(cdp_sess.session_id),
         )
 
-        while True:
-            raw = await self._ws.recv()
-            payload = json.loads(raw)
-            if not isinstance(payload, dict):
-                continue
-            if int(payload.get("id", -1)) != req_id:
-                continue
-            if "error" in payload:
-                raise RuntimeError(f"CDP {method} failed: {payload['error']}")
-            result = payload.get("result")
-            if isinstance(result, dict):
-                return result
-            return {}
+    async def view_page(self) -> ToolResult:
+        try:
+            session = await self._ensure_session()
+            state = await session.get_browser_state_summary(include_screenshot=False)
+            interactive_elements = await self._get_interactive_elements()
+            content = ""
+            if state.dom_state is not None:
+                content = state.dom_state.llm_representation()
+            return ToolResult(
+                success=True,
+                data={"interactive_elements": interactive_elements, "content": content},
+            )
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to view page: {exc}")
+
+    async def navigate(self, url: str) -> ToolResult:
+        try:
+            session = await self._ensure_session()
+            await session.navigate_to(url)
+            interactive_elements = await self._get_interactive_elements()
+            return ToolResult(success=True, data={"interactive_elements": interactive_elements})
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to navigate to {url}: {exc}")
+
+    async def restart(self, url: str) -> ToolResult:
+        await self.cleanup()
+        return await self.navigate(url)
+
+    async def click(
+        self,
+        index: Optional[int] = None,
+        coordinate_x: Optional[float] = None,
+        coordinate_y: Optional[float] = None,
+    ) -> ToolResult:
+        try:
+            if coordinate_x is not None and coordinate_y is not None:
+                await self._dispatch_mouse_event("mousePressed", coordinate_x, coordinate_y, "left", 1)
+                await self._dispatch_mouse_event("mouseReleased", coordinate_x, coordinate_y, "left", 1)
+            elif index is not None:
+                session = await self._ensure_session()
+                node = await session.get_dom_element_by_index(index)
+                if node is None:
+                    return ToolResult(success=False, message=f"Cannot find interactive element with index {index}")
+                page = await self._get_current_page()
+                element = await page.get_element(node.backend_node_id)
+                await element.click()
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to click element: {exc}")
+
+    async def input(
+        self,
+        text: str,
+        press_enter: bool,
+        index: Optional[int] = None,
+        coordinate_x: Optional[float] = None,
+        coordinate_y: Optional[float] = None,
+    ) -> ToolResult:
+        try:
+            page = await self._get_current_page()
+            if coordinate_x is not None and coordinate_y is not None:
+                await self._dispatch_mouse_event("mousePressed", coordinate_x, coordinate_y, "left", 1)
+                await self._dispatch_mouse_event("mouseReleased", coordinate_x, coordinate_y, "left", 1)
+                cdp_sess = await self._get_cdp_session()
+                await cdp_sess.cdp_client.send.Input.insertText(
+                    params={"text": text},
+                    session_id=str(cdp_sess.session_id),
+                )
+            elif index is not None:
+                session = await self._ensure_session()
+                node = await session.get_dom_element_by_index(index)
+                if node is None:
+                    return ToolResult(success=False, message=f"Cannot find interactive element with index {index}")
+                element = await page.get_element(node.backend_node_id)
+                await element.fill(text)
+            if press_enter:
+                await page.press("Enter")
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to input text: {exc}")
+
+    async def move_mouse(self, coordinate_x: float, coordinate_y: float) -> ToolResult:
+        try:
+            await self._dispatch_mouse_event("mouseMoved", coordinate_x, coordinate_y)
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to move mouse: {exc}")
+
+    async def press_key(self, key: str) -> ToolResult:
+        try:
+            page = await self._get_current_page()
+            await page.press(key)
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to press key: {exc}")
+
+    async def select_option(self, index: int, option: int) -> ToolResult:
+        try:
+            session = await self._ensure_session()
+            node = await session.get_dom_element_by_index(index)
+            if node is None:
+                return ToolResult(success=False, message=f"Cannot find selector element with index {index}")
+            page = await self._get_current_page()
+            element = await page.get_element(node.backend_node_id)
+            await element.select_option(str(option))
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to select option: {exc}")
+
+    async def scroll_up(self, to_top: Optional[bool] = None) -> ToolResult:
+        try:
+            page = await self._get_current_page()
+            if to_top:
+                await page.evaluate("() => window.scrollTo(0, 0)")
+            else:
+                await page.evaluate("() => window.scrollBy(0, -window.innerHeight)")
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to scroll up: {exc}")
+
+    async def scroll_down(self, to_bottom: Optional[bool] = None) -> ToolResult:
+        try:
+            page = await self._get_current_page()
+            if to_bottom:
+                await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+            else:
+                await page.evaluate("() => window.scrollBy(0, window.innerHeight)")
+            return ToolResult(success=True)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to scroll down: {exc}")
+
+    async def screenshot(self, full_page: Optional[bool] = False) -> bytes:
+        session = await self._ensure_session()
+        return await session.take_screenshot(full_page=bool(full_page))
+
+    async def console_exec(self, javascript: str) -> ToolResult:
+        try:
+            page = await self._get_current_page()
+            js = javascript.strip()
+            if not (js.startswith("(") and "=>" in js):
+                js = f"() => {{ {js} }}"
+            result = await page.evaluate(js)
+            return ToolResult(success=True, data={"result": result})
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to execute JavaScript: {exc}")
+
+    async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:
+        try:
+            page = await self._get_current_page()
+            logs_raw = await page.evaluate("() => window.console.logs || []")
+
+            import json
+
+            try:
+                logs = json.loads(logs_raw) if isinstance(logs_raw, str) else logs_raw
+            except (TypeError, ValueError):
+                logs = logs_raw
+
+            if max_lines is not None and isinstance(logs, list):
+                logs = logs[-max_lines:]
+            return ToolResult(success=True, data={"logs": logs})
+        except Exception as exc:
+            return ToolResult(success=False, message=f"Failed to view console: {exc}")
 
 
 class RuntimeBrowserService:
-    def __init__(self, debugger_list_url: str = "http://127.0.0.1:9222/json/list"):
-        self._debugger_list_url = debugger_list_url
+    def __init__(self, cdp_url: str = "http://127.0.0.1:9222"):
+        self._browser = BrowserUseBrowser(cdp_url)
         self._lock = asyncio.Lock()
+
+    @staticmethod
+    def _to_payload(result: ToolResult) -> dict[str, Any]:
+        return {
+            "success": bool(result.success),
+            "message": result.message or "",
+            "data": result.data,
+        }
 
     async def execute(self, function_name: str, function_args: dict[str, Any]) -> dict[str, Any]:
         fn = (function_name or "").strip()
         args = function_args or {}
-
         async with self._lock:
-            try:
-                if fn == "browser_view":
-                    return await self._view()
-                if fn == "browser_navigate":
-                    return await self._navigate(str(args.get("url") or "").strip())
-                if fn == "browser_restart":
-                    return await self._restart(str(args.get("url") or "").strip())
-                if fn == "browser_click":
-                    return await self._click(
+            if fn == "browser_view":
+                return self._to_payload(await self._browser.view_page())
+            if fn == "browser_navigate":
+                return self._to_payload(await self._browser.navigate(str(args.get("url") or "").strip()))
+            if fn == "browser_restart":
+                return self._to_payload(await self._browser.restart(str(args.get("url") or "").strip()))
+            if fn == "browser_click":
+                return self._to_payload(
+                    await self._browser.click(
                         index=args.get("index"),
                         coordinate_x=args.get("coordinate_x"),
                         coordinate_y=args.get("coordinate_y"),
                     )
-                if fn == "browser_hover_observe":
-                    return await self._hover(
-                        index=args.get("index"),
-                        coordinate_x=args.get("coordinate_x"),
-                        coordinate_y=args.get("coordinate_y"),
-                    )
-                if fn == "browser_input":
-                    return await self._input(
+                )
+            if fn == "browser_input":
+                return self._to_payload(
+                    await self._browser.input(
                         text=str(args.get("text") or ""),
                         press_enter=bool(args.get("press_enter", False)),
                         index=args.get("index"),
-                    )
-                if fn == "browser_wait_for_selector":
-                    return await self._wait_for_selector(
-                        selector=str(args.get("selector") or ""),
-                        text_contains=(str(args.get("text_contains")) if args.get("text_contains") is not None else None),
-                        timeout_ms=int(args.get("timeout_ms") or 6000),
-                    )
-                if fn == "browser_accessibility_snapshot":
-                    return await self._accessibility_snapshot(max_nodes=int(args.get("max_nodes") or 200))
-                if fn == "browser_move_mouse":
-                    return await self._move_mouse(
                         coordinate_x=args.get("coordinate_x"),
                         coordinate_y=args.get("coordinate_y"),
                     )
-                if fn == "browser_press_key":
-                    return await self._press_key(str(args.get("key") or ""))
-                if fn == "browser_select_option":
-                    return await self._select_option(index=args.get("index"), option=args.get("option"))
-                if fn == "browser_scroll_down":
-                    return await self._scroll(down=True, to_boundary=bool(args.get("to_bottom", False)))
-                if fn == "browser_scroll_up":
-                    return await self._scroll(down=False, to_boundary=bool(args.get("to_top", False)))
-                if fn == "browser_console_exec":
-                    return await self._console_exec(str(args.get("javascript") or ""))
-                if fn == "browser_console_view":
-                    return await self._console_view(max_lines=args.get("max_lines"))
-                if fn == "browser_screenshot":
-                    return await self._screenshot(full_page=bool(args.get("full_page", False)))
-                if fn == "browser_screenshot_data_url":
-                    return await self._screenshot_data_url(full_page=bool(args.get("full_page", False)))
-
-                return {
-                    "success": False,
-                    "message": f"Unsupported browser function: {fn}",
-                    "data": {},
-                }
-            except Exception as e:
-                return {
-                    "success": False,
-                    "message": str(e),
-                    "data": {},
-                }
-
-    async def _pick_page_ws_url(self) -> str:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-            response = await client.get(self._debugger_list_url)
-            response.raise_for_status()
-            payload = response.json()
-        if not isinstance(payload, list):
-            raise RuntimeError("CDP target list is invalid")
-        pages = [item for item in payload if isinstance(item, dict) and item.get("type") == "page"]
-        if not pages:
-            raise RuntimeError("No browser page target found")
-        target = pages[-1]
-        ws_url = target.get("webSocketDebuggerUrl")
-        if not isinstance(ws_url, str) or not ws_url:
-            raise RuntimeError("CDP target missing webSocketDebuggerUrl")
-        return ws_url
-
-    async def _open_session(self) -> _CDPSession:
-        ws_url = await self._pick_page_ws_url()
-        return _CDPSession(ws_url)
-
-    @staticmethod
-    def _unwrap_remote_value(result: dict[str, Any]) -> Any:
-        rv = result.get("result")
-        if not isinstance(rv, dict):
-            return None
-        if "value" in rv:
-            return rv.get("value")
-        return None
-
-    async def _evaluate(self, cdp: _CDPSession, expression: str, await_promise: bool = True) -> Any:
-        result = await cdp.call(
-            "Runtime.evaluate",
-            {
-                "expression": expression,
-                "awaitPromise": await_promise,
-                "returnByValue": True,
-            },
-        )
-        return self._unwrap_remote_value(result)
-
-    async def _capture_screenshot_bytes(self, cdp: _CDPSession, full_page: bool = False) -> bytes:
-        if full_page:
-            metrics = await cdp.call("Page.getLayoutMetrics")
-            content_size = metrics.get("contentSize", {}) if isinstance(metrics, dict) else {}
-            width = int(content_size.get("width", 0) or 0)
-            height = int(content_size.get("height", 0) or 0)
-            if width > 0 and height > 0:
-                await cdp.call(
-                    "Emulation.setDeviceMetricsOverride",
-                    {
-                        "mobile": False,
-                        "width": width,
-                        "height": height,
-                        "deviceScaleFactor": 1,
-                    },
                 )
-        result = await cdp.call("Page.captureScreenshot", {"format": "png"})
-        base64_data = result.get("data")
-        if not isinstance(base64_data, str) or not base64_data:
-            raise RuntimeError("captureScreenshot returned empty data")
-        return base64.b64decode(base64_data)
-
-    async def _capture_screenshot_data_url(self, cdp: _CDPSession, full_page: bool = False) -> str:
-        if full_page:
-            metrics = await cdp.call("Page.getLayoutMetrics")
-            content_size = metrics.get("contentSize", {}) if isinstance(metrics, dict) else {}
-            width = int(content_size.get("width", 0) or 0)
-            height = int(content_size.get("height", 0) or 0)
-            if width > 0 and height > 0:
-                await cdp.call(
-                    "Emulation.setDeviceMetricsOverride",
-                    {
-                        "mobile": False,
-                        "width": width,
-                        "height": height,
-                        "deviceScaleFactor": 1,
-                    },
+            if fn == "browser_move_mouse":
+                return self._to_payload(
+                    await self._browser.move_mouse(
+                        coordinate_x=float(args.get("coordinate_x")),
+                        coordinate_y=float(args.get("coordinate_y")),
+                    )
                 )
-        result = await cdp.call(
-            "Page.captureScreenshot",
-            {
-                "format": "jpeg",
-                "quality": 55,
-            },
-        )
-        base64_data = result.get("data")
-        if not isinstance(base64_data, str) or not base64_data:
-            raise RuntimeError("captureScreenshot returned empty data")
-        return f"data:image/jpeg;base64,{base64_data}"
-
-    async def _collect_page_snapshot(self, cdp: _CDPSession) -> dict[str, Any]:
-        snapshot = await self._evaluate(
-            cdp,
-            """(() => {
-                const isVisible = (el) => {
-                  if (!el) return false;
-                  const rect = el.getBoundingClientRect();
-                  if (rect.width <= 0 || rect.height <= 0) return false;
-                  const style = window.getComputedStyle(el);
-                  if (!style) return false;
-                  return !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
-                };
-                const nodes = Array.from(document.querySelectorAll(
-                  'button,a,input,textarea,select,[role="button"],[tabindex]:not([tabindex="-1"])'
-                ));
-                const interactive = [];
-                let idx = 0;
-                for (const node of nodes) {
-                  if (!isVisible(node)) continue;
-                  const txt = (node.innerText || node.textContent || node.getAttribute('aria-label') || node.getAttribute('placeholder') || '').trim().replace(/\s+/g, ' ');
-                  node.setAttribute('data-manus-id', `manus-element-${idx}`);
-                  interactive.push(`${idx}:<${(node.tagName || 'node').toLowerCase()}>${txt || '[No text]'}</${(node.tagName || 'node').toLowerCase()}>`);
-                  idx += 1;
-                  if (interactive.length >= 200) break;
-                }
-                const bodyText = (document.body?.innerText || '').trim();
-                return {
-                  content: bodyText.length > 12000 ? bodyText.slice(0, 12000) + '\n...(truncated)' : bodyText,
-                  interactive_elements: interactive,
-                };
-            })()""",
-        )
-        if isinstance(snapshot, dict):
-            return snapshot
-        return {
-            "content": "",
-            "interactive_elements": [],
-        }
-
-    async def _view(self) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            data = await self._collect_page_snapshot(cdp)
-            return {"success": True, "message": "ok", "data": data}
-
-    async def _navigate(self, url: str) -> dict[str, Any]:
-        if not url:
-            return {"success": False, "message": "url is required", "data": {}}
-
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            await cdp.call("Page.navigate", {"url": url})
-            deadline = time.time() + 15
-            while time.time() < deadline:
-                state = await self._evaluate(cdp, "document.readyState")
-                if state in {"interactive", "complete"}:
-                    break
-                await asyncio.sleep(0.25)
-            data = await self._collect_page_snapshot(cdp)
-            return {
-                "success": True,
-                "message": "ok",
-                "data": {"interactive_elements": data.get("interactive_elements", [])},
-            }
-
-    async def _restart(self, url: str) -> dict[str, Any]:
-        return await self._navigate(url)
-
-    async def _click(self, index: Any = None, coordinate_x: Any = None, coordinate_y: Any = None) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-
-            if coordinate_x is not None and coordinate_y is not None:
-                x = float(coordinate_x)
-                y = float(coordinate_y)
-                await cdp.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
-                await cdp.call("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1})
-                await cdp.call("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1})
-            else:
-                if index is None:
-                    return {"success": False, "message": "index or coordinate is required", "data": {}}
-                clicked = await self._evaluate(
-                    cdp,
-                    f"""(() => {{
-                        const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
-                        if (!target) return false;
-                        target.scrollIntoView({{block: 'center'}});
-                        target.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                        target.dispatchEvent(new MouseEvent('mousedown', {{bubbles: true, cancelable: true}}));
-                        target.dispatchEvent(new MouseEvent('mouseup', {{bubbles: true, cancelable: true}}));
-                        target.click();
-                        return true;
-                    }})()""",
+            if fn == "browser_press_key":
+                return self._to_payload(await self._browser.press_key(str(args.get("key") or "")))
+            if fn == "browser_select_option":
+                return self._to_payload(
+                    await self._browser.select_option(
+                        index=int(args.get("index")),
+                        option=int(args.get("option")),
+                    )
                 )
-                if not clicked:
-                    return {"success": False, "message": f"interactive index not found: {index}", "data": {}}
-
-            return {"success": True, "message": "ok", "data": None}
-
-    async def _hover(self, index: Any = None, coordinate_x: Any = None, coordinate_y: Any = None) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            if coordinate_x is not None and coordinate_y is not None:
-                await cdp.call(
-                    "Input.dispatchMouseEvent",
-                    {"type": "mouseMoved", "x": float(coordinate_x), "y": float(coordinate_y)},
+            if fn == "browser_scroll_down":
+                return self._to_payload(await self._browser.scroll_down(to_bottom=bool(args.get("to_bottom", False))))
+            if fn == "browser_scroll_up":
+                return self._to_payload(await self._browser.scroll_up(to_top=bool(args.get("to_top", False))))
+            if fn == "browser_console_exec":
+                return self._to_payload(await self._browser.console_exec(str(args.get("javascript") or "")))
+            if fn == "browser_console_view":
+                max_lines = args.get("max_lines")
+                return self._to_payload(
+                    await self._browser.console_view(
+                        max_lines=int(max_lines) if max_lines is not None else None
+                    )
                 )
-            else:
-                if index is None:
-                    return {"success": False, "message": "index or coordinate is required", "data": {}}
-                hovered = await self._evaluate(
-                    cdp,
-                    f"""(() => {{
-                        const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
-                        if (!target) return false;
-                        target.scrollIntoView({{block: 'center'}});
-                        target.dispatchEvent(new MouseEvent('mouseover', {{bubbles: true}}));
-                        target.dispatchEvent(new MouseEvent('mouseenter', {{bubbles: true}}));
-                        return true;
-                    }})()""",
-                )
-                if not hovered:
-                    return {"success": False, "message": f"interactive index not found: {index}", "data": {}}
-            await asyncio.sleep(0.25)
-            data = await self._collect_page_snapshot(cdp)
-            return {"success": True, "message": "ok", "data": data}
-
-    async def _input(self, text: str, press_enter: bool, index: Any = None) -> dict[str, Any]:
-        if index is None:
-            return {"success": False, "message": "index is required for browser_input", "data": {}}
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            text_literal = json.dumps(text, ensure_ascii=False)
-            set_result = await self._evaluate(
-                cdp,
-                f"""(() => {{
-                    const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
-                    if (!target) return false;
-                    target.scrollIntoView({{block: 'center'}});
-                    target.focus();
-                    const value = {text_literal};
-                    if ('value' in target) {{
-                      target.value = value;
-                    }} else {{
-                      target.innerText = value;
-                    }}
-                    target.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    target.dispatchEvent(new Event('change', {{bubbles: true}}));
-                    return true;
-                }})()""",
-            )
-            if not set_result:
-                return {"success": False, "message": f"interactive index not found: {index}", "data": {}}
-
-            if press_enter:
-                await cdp.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter"})
-                await cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Enter", "code": "Enter"})
-
-            return {"success": True, "message": "ok", "data": None}
-
-    async def _wait_for_selector(self, selector: str, text_contains: str | None, timeout_ms: int) -> dict[str, Any]:
-        if not selector:
-            return {"success": False, "message": "selector is required", "data": {}}
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            deadline = time.time() + (max(500, timeout_ms) / 1000)
-            selector_literal = json.dumps(selector, ensure_ascii=False)
-            text_literal = json.dumps(text_contains or "", ensure_ascii=False)
-            while time.time() < deadline:
-                matched = await self._evaluate(
-                    cdp,
-                    f"""(() => {{
-                        const node = document.querySelector({selector_literal});
-                        if (!node) return false;
-                        const expected = {text_literal};
-                        if (!expected) return true;
-                        const text = (node.innerText || node.textContent || '').trim();
-                        return text.includes(expected);
-                    }})()""",
-                )
-                if matched:
-                    return {"success": True, "message": "ok", "data": None}
-                await asyncio.sleep(0.25)
-            return {"success": False, "message": f"selector wait timeout: {selector}", "data": {}}
-
-    async def _accessibility_snapshot(self, max_nodes: int) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            tree = await self._evaluate(
-                cdp,
-                f"""(() => {{
-                    const rows = [];
-                    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_ELEMENT);
-                    let node = walker.currentNode;
-                    while (node && rows.length < {max(10, max_nodes)}) {{
-                        const role = node.getAttribute?.('role') || node.tagName?.toLowerCase?.() || 'node';
-                        const name = node.getAttribute?.('aria-label') || node.innerText || node.textContent || '';
-                        rows.push({{
-                          role,
-                          name: String(name).slice(0, 120).trim(),
-                        }});
-                        node = walker.nextNode();
-                    }}
-                    return rows;
-                }})()""",
-            )
-            return {
-                "success": True,
-                "message": "ok",
-                "data": {"nodes": tree if isinstance(tree, list) else []},
-            }
-
-    async def _move_mouse(self, coordinate_x: Any, coordinate_y: Any) -> dict[str, Any]:
-        if coordinate_x is None or coordinate_y is None:
-            return {"success": False, "message": "coordinate_x and coordinate_y are required", "data": {}}
-        async with await self._open_session() as cdp:
-            await cdp.call(
-                "Input.dispatchMouseEvent",
-                {"type": "mouseMoved", "x": float(coordinate_x), "y": float(coordinate_y)},
-            )
-            return {"success": True, "message": "ok", "data": None}
-
-    async def _press_key(self, key: str) -> dict[str, Any]:
-        if not key:
-            return {"success": False, "message": "key is required", "data": {}}
-        async with await self._open_session() as cdp:
-            await cdp.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": key, "code": key})
-            await cdp.call("Input.dispatchKeyEvent", {"type": "keyUp", "key": key, "code": key})
-            return {"success": True, "message": "ok", "data": None}
-
-    async def _select_option(self, index: Any, option: Any) -> dict[str, Any]:
-        if index is None or option is None:
-            return {"success": False, "message": "index and option are required", "data": {}}
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            selected = await self._evaluate(
-                cdp,
-                f"""(() => {{
-                    const target = document.querySelector('[data-manus-id="manus-element-{int(index)}"]');
-                    if (!target) return false;
-                    if (!(target instanceof HTMLSelectElement)) return false;
-                    target.selectedIndex = {int(option)};
-                    target.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    target.dispatchEvent(new Event('change', {{bubbles: true}}));
-                    return true;
-                }})()""",
-            )
-            if not selected:
-                return {"success": False, "message": f"selector element not found or invalid: {index}", "data": {}}
-            return {"success": True, "message": "ok", "data": None}
-
-    async def _scroll(self, down: bool, to_boundary: bool) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            if to_boundary:
-                script = "window.scrollTo(0, document.body.scrollHeight);" if down else "window.scrollTo(0, 0);"
-            else:
-                script = "window.scrollBy(0, window.innerHeight);" if down else "window.scrollBy(0, -window.innerHeight);"
-            await self._evaluate(cdp, script)
-            return {"success": True, "message": "ok", "data": None}
-
-    async def _console_exec(self, javascript: str) -> dict[str, Any]:
-        if not javascript.strip():
-            return {"success": False, "message": "javascript is required", "data": {}}
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            value = await self._evaluate(cdp, javascript, await_promise=True)
-            return {"success": True, "message": "ok", "data": {"result": value}}
-
-    async def _console_view(self, max_lines: Any) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            await cdp.call("Runtime.enable")
-            logs = await self._evaluate(cdp, "window.console.logs || []")
-            if not isinstance(logs, list):
-                logs = []
-            if max_lines is not None:
-                logs = logs[-max(0, int(max_lines)) :]
-            return {"success": True, "message": "ok", "data": {"logs": logs}}
-
-    async def _screenshot(self, full_page: bool) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            image = await self._capture_screenshot_bytes(cdp, full_page=full_page)
-            return {"success": True, "message": "ok", "data": {"bytes": image}}
-
-    async def _screenshot_data_url(self, full_page: bool) -> dict[str, Any]:
-        async with await self._open_session() as cdp:
-            await cdp.call("Page.enable")
-            data_url = await self._capture_screenshot_data_url(cdp, full_page=full_page)
-            return {"success": True, "message": "ok", "data": {"screenshot": data_url}}
+            if fn == "browser_screenshot":
+                image = await self._browser.screenshot(full_page=bool(args.get("full_page", False)))
+                return {"success": True, "message": "", "data": {"bytes": image}}
+            return {"success": False, "message": f"Unsupported browser function: {fn}", "data": {}}
 
 
 runtime_browser_service = RuntimeBrowserService()

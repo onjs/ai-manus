@@ -15,7 +15,6 @@ class Step(BaseModel):
     status: ExecutionStatus = ExecutionStatus.PENDING
     result: Optional[str] = None
     error: Optional[str] = None
-    blocked_reason: Optional[str] = None
     success: bool = False
     attachments: List[str] = []
 

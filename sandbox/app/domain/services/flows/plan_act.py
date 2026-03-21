@@ -1,22 +1,33 @@
-from __future__ import annotations
-
 import logging
-import time
-from enum import Enum
-from typing import AsyncGenerator, Optional
-
-from app.core.config import settings
-from app.domain.models.event import BaseEvent, DoneEvent, ErrorEvent, MessageEvent, PlanEvent, PlanStatus, TitleEvent, WaitEvent
-from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, Plan
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.services.agents.execution import ExecutionAgent
-from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.flows.base import BaseFlow
-from app.domain.services.tools.base import BaseToolkit
+from app.domain.models.message import Message
+from typing import AsyncGenerator, Optional
+from enum import Enum
+from app.domain.models.event import (
+    BaseEvent,
+    PlanEvent,
+    PlanStatus,
+    MessageEvent,
+    DoneEvent,
+    TitleEvent,
+)
+from app.domain.models.plan import ExecutionStatus
+from app.domain.services.agents.planner import PlannerAgent
+from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.external.sandbox import Sandbox
+from app.domain.external.browser import Browser
+from app.domain.external.search import SearchEngine
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.repositories.session_repository import SessionRepository
+from app.domain.models.session import SessionStatus
+from app.domain.services.tools.mcp import MCPToolkit
+from app.domain.services.tools.shell import ShellToolkit
+from app.domain.services.tools.browser import BrowserToolkit
+from app.domain.services.tools.file import FileToolkit
+from app.domain.services.tools.message import MessageToolkit
+from app.domain.services.tools.search import SearchToolkit
 
 logger = logging.getLogger(__name__)
-
 
 class AgentStatus(str, Enum):
     IDLE = "idle"
@@ -26,150 +37,139 @@ class AgentStatus(str, Enum):
     COMPLETED = "completed"
     UPDATING = "updating"
 
-
-class AgentLoopError(RuntimeError):
-    """Deterministic flow error carrying a stable classification code."""
-
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
-
-
 class PlanActFlow(BaseFlow):
-    """Sandbox runtime plan-act loop aligned with ai-manus flow states."""
-
     def __init__(
         self,
         agent_id: str,
         agent_repository: AgentRepository,
-        tools: list[BaseToolkit],
-        model_kwargs: dict,
+        session_id: str,
+        session_repository: SessionRepository,
+        sandbox: Sandbox,
+        browser: Browser,
+        mcp_tool: MCPToolkit,
+        search_engine: Optional[SearchEngine] = None,
+        model_kwargs: Optional[dict] = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
-        self._max_rounds = int(settings.AGENT_LOOP_MAX_ROUNDS)
-        self._timeout_seconds = int(settings.AGENT_LOOP_TIMEOUT_SECONDS)
+        self._session_id = session_id
+        self._session_repository = session_repository
         self.status = AgentStatus.IDLE
         self.plan = None
 
+        tools = [
+            ShellToolkit(sandbox),
+            BrowserToolkit(browser),
+            FileToolkit(sandbox),
+            MessageToolkit(),
+            mcp_tool
+        ]
+        
+        # Only add search tool when search_engine is not None
+        if search_engine:
+            tools.append(SearchToolkit(search_engine))
+
+        # Create planner and execution agents
         self.planner = PlannerAgent(
             agent_id=self._agent_id,
             agent_repository=self._repository,
             tools=tools,
             model_kwargs=model_kwargs,
         )
+        logger.debug(f"Created planner agent for Agent {self._agent_id}")
+            
         self.executor = ExecutionAgent(
             agent_id=self._agent_id,
             agent_repository=self._repository,
             tools=tools,
             model_kwargs=model_kwargs,
         )
+        logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
-    def _assert_not_timeout(self, started_at: float) -> None:
-        elapsed = time.monotonic() - started_at
-        if elapsed > float(self._timeout_seconds):
-            raise AgentLoopError(
-                "loop_timeout_exceeded",
-                f"agent loop timeout exceeded ({self._timeout_seconds}s)",
-            )
+    async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
 
-    async def run(
-        self,
-        message: Message,
-        session_status: str,
-        last_plan: dict | None = None,
-    ) -> AsyncGenerator[BaseEvent, None]:
-        logger.info("Agent %s start processing message", self._agent_id)
+        # TODO: move to task runner
+        session = await self._session_repository.find_by_id(self._session_id)
+        if not session:
+            raise ValueError(f"Session {self._session_id} not found")
+        
+        if session.status != SessionStatus.PENDING:
+            logger.debug(f"Session {self._session_id} is not in PENDING status, rolling back")
+            await self.executor.roll_back(message)
+            await self.planner.roll_back(message)
+        
+        if session.status == SessionStatus.RUNNING:
+            logger.debug(f"Session {self._session_id} is in RUNNING status")
+            self.status = AgentStatus.PLANNING
+
+        if session.status == SessionStatus.WAITING:
+            logger.debug(f"Session {self._session_id} is in WAITING status")
+            self.status = AgentStatus.EXECUTING
+
+        await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)  
+        self.plan = session.get_last_plan()
+
+        logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
         step = None
-        loop_started_at = time.monotonic()
-        rounds = 0
-        try:
-            if session_status not in {"pending", "running", "waiting", "completed"}:
-                raise AgentLoopError("session_status_invalid", f"unsupported session status: {session_status}")
-
-            if last_plan is not None:
-                self.plan = Plan.model_validate(last_plan)
-
-            if session_status != "pending":
-                await self.executor.roll_back(message)
-                await self.planner.roll_back(message)
-
-            if session_status == "running":
+        while True:
+            if self.status == AgentStatus.IDLE:
+                logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
                 self.status = AgentStatus.PLANNING
-            elif session_status == "waiting":
-                if self.plan is None:
-                    raise AgentLoopError("resume_plan_missing", "last_plan is required when resuming from waiting")
+            elif self.status == AgentStatus.PLANNING:
+                # Create plan
+                logger.info(f"Agent {self._agent_id} started creating plan")
+                async for event in self.planner.create_plan(message):
+                    if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
+                        self.plan = event.plan
+                        logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
+                        yield TitleEvent(title=event.plan.title)
+                        yield MessageEvent(role="assistant", message=event.plan.message)
+                    yield event
+                logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
                 self.status = AgentStatus.EXECUTING
-
-            while True:
-                self._assert_not_timeout(loop_started_at)
-                if self.status == AgentStatus.IDLE:
-                    self.status = AgentStatus.PLANNING
-                elif self.status == AgentStatus.PLANNING:
-                    async for event in self.planner.create_plan(message):
-                        if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
-                            self.plan = event.plan
-                            yield TitleEvent(title=event.plan.title)
-                            if event.plan.message is not None:
-                                yield MessageEvent(role="assistant", message=event.plan.message or "")
-                        yield event
-                    self.status = AgentStatus.EXECUTING
-                    if self.plan and len(self.plan.steps) == 0:
-                        self.status = AgentStatus.COMPLETED
-
-                elif self.status == AgentStatus.EXECUTING:
-                    if self.plan is None:
-                        raise AgentLoopError("loop_plan_missing", "plan missing in executing state")
-                    self.plan.status = ExecutionStatus.RUNNING
-                    step = self.plan.get_next_step()
-                    if not step:
-                        self.status = AgentStatus.SUMMARIZING
-                        continue
-
-                    rounds += 1
-                    if rounds > self._max_rounds:
-                        raise AgentLoopError(
-                            "loop_round_limit_exceeded",
-                            f"agent loop max rounds exceeded ({self._max_rounds})",
-                        )
-
-                    wait_seen = False
-                    async for event in self.executor.execute_step(self.plan, step, message):
-                        yield event
-                        if isinstance(event, WaitEvent):
-                            wait_seen = True
-                            break
-                    if wait_seen:
-                        self.status = AgentStatus.IDLE
-                        return
-
-                    await self.executor.compact_memory()
-                    self.status = AgentStatus.UPDATING
-
-                elif self.status == AgentStatus.UPDATING:
-                    if self.plan is None or step is None:
-                        raise AgentLoopError("loop_state_error", "plan/step missing in updating state")
-                    async for event in self.planner.update_plan(self.plan, step):
-                        yield event
-                    await self.planner.compact_memory()
-                    self.status = AgentStatus.EXECUTING
-
-                elif self.status == AgentStatus.SUMMARIZING:
-                    async for event in self.executor.summarize():
-                        yield event
+                if len(event.plan.steps) == 0:
+                    logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
                     self.status = AgentStatus.COMPLETED
-
-                elif self.status == AgentStatus.COMPLETED:
-                    if self.plan is not None:
-                        self.plan.status = ExecutionStatus.COMPLETED
-                        yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
-                    self.status = AgentStatus.IDLE
-                    break
-
-            yield DoneEvent()
-        except AgentLoopError as e:
-            self.status = AgentStatus.IDLE
-            yield ErrorEvent(error=f"{e.code}: {e}")
-
+                    
+            elif self.status == AgentStatus.EXECUTING:
+                # Execute plan
+                self.plan.status = ExecutionStatus.RUNNING
+                step = self.plan.get_next_step()
+                if not step:
+                    logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
+                    self.status = AgentStatus.SUMMARIZING
+                    continue
+                # Execute step
+                logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
+                async for event in self.executor.execute_step(self.plan, step, message):
+                    yield event
+                logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
+                await self.executor.compact_memory()
+                logger.debug(f"Agent {self._agent_id} compacted memory")
+                self.status = AgentStatus.UPDATING
+            elif self.status == AgentStatus.UPDATING:
+                # Update plan
+                logger.info(f"Agent {self._agent_id} started updating plan")
+                async for event in self.planner.update_plan(self.plan, step):
+                    yield event
+                logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
+                self.status = AgentStatus.EXECUTING
+            elif self.status == AgentStatus.SUMMARIZING:
+                # Conclusion
+                logger.info(f"Agent {self._agent_id} started summarizing")
+                async for event in self.executor.summarize():
+                    yield event
+                logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
+                self.status = AgentStatus.COMPLETED
+            elif self.status == AgentStatus.COMPLETED:
+                self.plan.status = ExecutionStatus.COMPLETED
+                logger.info(f"Agent {self._agent_id} plan has been completed")
+                yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
+                self.status = AgentStatus.IDLE
+                break
+        yield DoneEvent()
+        
+        logger.info(f"Agent {self._agent_id} message processing completed")
+    
     def is_done(self) -> bool:
         return self.status == AgentStatus.IDLE

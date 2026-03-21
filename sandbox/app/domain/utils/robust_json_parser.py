@@ -28,6 +28,7 @@ helper to build the stage-5 context without duplicating the template.
 """
 import asyncio
 import logging
+import re
 from typing import Any, Optional
 
 from langchain_core.exceptions import OutputParserException
@@ -40,6 +41,7 @@ from langchain_core.utils.json import parse_json_markdown, parse_partial_json
 from langchain_classic.output_parsers.fix import OutputFixingParser
 
 logger = logging.getLogger(__name__)
+_THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
 
 _RETRY_WITH_ERROR_TEMPLATE = (
     "Your previous response contained invalid JSON in the tool call arguments.\n"
@@ -188,11 +190,13 @@ class RobustJsonParser(Runnable[AIMessage, AIMessage]):
         for itc in message.invalid_tool_calls:
             name: str = itc.get("name") or ""
             raw_args: str = itc.get("args") or ""
+            sanitized_args = _THINK_BLOCK_PATTERN.sub("", raw_args)
+            sanitized_args = sanitized_args.replace("<think>", "").replace("</think>", "").strip()
 
             fixed: Optional[dict] = (
-                self._stage1_partial_json(raw_args)
-                or self._stage2_json_markdown(raw_args)
-                or await self._stage3_output_fixing(raw_args)
+                self._stage1_partial_json(sanitized_args)
+                or self._stage2_json_markdown(sanitized_args)
+                or await self._stage3_output_fixing(sanitized_args)
             )
 
             if fixed is not None:

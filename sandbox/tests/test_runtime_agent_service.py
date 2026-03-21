@@ -32,7 +32,8 @@ class FakeFlow:
     def __init__(self, events):
         self._events = events
 
-    async def run(self, message):
+    async def run(self, message, session_status="pending", last_plan=None):
+        _ = (message, session_status, last_plan)
         for event in self._events:
             yield event
 
@@ -84,6 +85,9 @@ async def test_runtime_agent_service_maps_flow_events_to_runtime_protocol(monkey
         user_id="u1",
         sandbox_id="sbx1",
         user_message="run shell then finish",
+        attachments=[],
+        session_status="pending",
+        last_plan=None,
     ):
         out.append((event_name, payload))
 
@@ -125,6 +129,9 @@ async def test_runtime_agent_service_maps_wait_event(monkeypatch):
         user_id="u1",
         sandbox_id="sbx1",
         user_message="need login",
+        attachments=[],
+        session_status="pending",
+        last_plan=None,
     ):
         out.append((event_name, payload))
 
@@ -148,6 +155,9 @@ async def test_runtime_agent_service_returns_error_on_unhandled_exception(monkey
         user_id="u1",
         sandbox_id="sbx1",
         user_message="hello",
+        attachments=[],
+        session_status="pending",
+        last_plan=None,
     ):
         out.append((event_name, payload))
 
