@@ -53,16 +53,18 @@ class DockerSandbox(Sandbox):
             Container IP address
         """
         # Get container network settings
-        network_settings = container.attrs['NetworkSettings']
-        ip_address = network_settings['IPAddress']
-        
-        # If default network has no IP, try to get IP from other networks
-        if not ip_address and 'Networks' in network_settings:
-            networks = network_settings['Networks']
-            # Try to get IP from first available network
-            for network_name, network_config in networks.items():
-                if 'IPAddress' in network_config and network_config['IPAddress']:
-                    ip_address = network_config['IPAddress']
+        network_settings = container.attrs["NetworkSettings"]
+
+        # On user-defined Docker networks the top-level IPAddress may be absent.
+        # Read it safely and fall back to per-network IPs.
+        ip_address = network_settings.get("IPAddress", "")
+
+        if not ip_address:
+            networks = network_settings.get("Networks", {})
+            for network_config in networks.values():
+                candidate = network_config.get("IPAddress", "")
+                if candidate:
+                    ip_address = candidate
                     break
         
         return ip_address

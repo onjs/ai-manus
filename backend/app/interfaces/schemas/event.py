@@ -96,7 +96,6 @@ class ToolSSEEvent(BaseSSEEvent):
             lowered.startswith("http://")
             or lowered.startswith("https://")
             or lowered.startswith("data:image/")
-            or lowered.startswith("/")
         )
 
     @classmethod

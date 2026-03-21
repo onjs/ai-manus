@@ -26,9 +26,8 @@ services:
       dockerfile: Dockerfile
     command:
       [
-        "uv", "run", 
-        "debugpy", "--listen", "0.0.0.0:5678", "-m", # Enable debug
-        "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+        "uv", "run",
+        "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
         "--timeout-graceful-shutdown","0"
       ]
     volumes:
@@ -39,7 +38,6 @@ services:
       - /app/.venv  # Avoid overwriting virtual environment
     ports:
       - "8000:8000"
-      - "5678:5678" # Debug port
     depends_on:
       gateway:
         condition: service_started

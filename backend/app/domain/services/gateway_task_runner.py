@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import re
 import time
@@ -21,6 +22,7 @@ from app.domain.models.event import (
     WaitEvent,
     SearchToolContent,
     ShellToolContent,
+    TitleEvent,
     ToolEvent,
     ToolStatus,
 )
@@ -31,6 +33,7 @@ from app.infrastructure.external.gateway.client import GatewayClient, GatewayIss
 
 logger = logging.getLogger(__name__)
 SANDBOX_PATH_RE = re.compile(r"/home/ubuntu/[^\s)\]}>\"']+")
+BROWSER_DATA_URI_PREFIX = "data:image/"
 
 
 class GatewayTaskRunner(TaskRunner):
@@ -183,7 +186,8 @@ class GatewayTaskRunner(TaskRunner):
                 for key in ("screenshot", "screenshot_url", "image_url", "image", "snapshot"):
                     screenshot = payload.get(key)
                     if isinstance(screenshot, str) and screenshot.strip():
-                        return BrowserToolContent(screenshot=screenshot)
+                        screenshot_ref = await self._normalize_browser_screenshot_ref(screenshot)
+                        return BrowserToolContent(screenshot=screenshot_ref)
             return None
 
         if tool_name == "search":
@@ -235,6 +239,22 @@ class GatewayTaskRunner(TaskRunner):
 
         return McpToolContent(result=payload)
 
+    async def _normalize_browser_screenshot_ref(self, screenshot: str) -> str:
+        if not screenshot.startswith(BROWSER_DATA_URI_PREFIX):
+            return screenshot
+
+        if ";base64," not in screenshot:
+            raise ValueError("Invalid browser screenshot data URI: missing base64 marker")
+
+        header, encoded = screenshot.split(",", 1)
+        image_format = "png"
+        if "/" in header:
+            image_format = header.split("/", 1)[1].split(";", 1)[0].strip() or "png"
+        image_bytes = base64.b64decode(encoded, validate=True)
+        filename = f"browser_screenshot.{image_format}"
+        file_info = await self._file_storage.upload_file(image_bytes, filename, self._user_id)
+        return file_info.file_id
+
     async def _normalize_tool_event(self, tool_event: ToolEvent) -> ToolEvent:
         normalized_args = self._normalize_function_args(
             tool_name=tool_event.tool_name,
@@ -249,6 +269,9 @@ class GatewayTaskRunner(TaskRunner):
                 function_args=normalized_args,
                 function_result=tool_event.function_result,
             )
+        elif isinstance(tool_content, BrowserToolContent):
+            screenshot_ref = await self._normalize_browser_screenshot_ref(tool_content.screenshot)
+            tool_content = BrowserToolContent(screenshot=screenshot_ref)
         return tool_event.model_copy(
             update={
                 "function_args": normalized_args,
@@ -496,6 +519,8 @@ class GatewayTaskRunner(TaskRunner):
                             out_event.timestamp,
                         )
                         await self._session_repository.increment_unread_message_count(self._session_id)
+                    elif isinstance(out_event, TitleEvent):
+                        await self._session_repository.update_title(self._session_id, out_event.title)
                     elif isinstance(out_event, ErrorEvent):
                         await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
                         await self._cleanup_gateway_credentials("stream_failed")
