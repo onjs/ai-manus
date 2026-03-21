@@ -1,0 +1,11 @@
+.DS_Store
+.git
+.gitignore
+.pytest_cache
+__pycache__
+.venv
+tests
+Dockerfile.base
+README.md
+README_zh.md
+

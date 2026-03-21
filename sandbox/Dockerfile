@@ -119,13 +119,12 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # Install Python dependencies (browser-use requires >=3.11)
-RUN UV_PYTHON=/usr/bin/python3.11 uv sync --no-dev
+RUN UV_PYTHON=/usr/bin/python3.11 uv sync --no-dev --no-cache && \
+    rm -rf /root/.cache/uv /home/ubuntu/.cache/uv
 
-# Copy source code
-COPY . .
-
-# Ensure application files are writable by app user
-RUN chown -R ubuntu:ubuntu /app
+# Copy runtime source only
+COPY app ./app
+COPY resource ./resource
 
 # Configure supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
