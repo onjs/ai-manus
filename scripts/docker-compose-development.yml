@@ -91,8 +91,6 @@ services:
     build:
       context: ./sandbox
       dockerfile: Dockerfile
-      args:
-        SANDBOX_BASE_IMAGE: ${SANDBOX_BASE_IMAGE:-ai-manus-sandbox-base:latest}
     hostname: sandbox
     volumes:
       - ./sandbox:/app  # Mount source code directory
@@ -111,21 +109,6 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - SANDBOX_INTERNAL_API_KEY=${SANDBOX_INTERNAL_API_KEY:?SANDBOX_INTERNAL_API_KEY is required}
     restart: unless-stopped
-    networks:
-      - manus-network
-
-  mockserver:
-    build:
-      context: ./mockserver
-      dockerfile: Dockerfile
-    volumes:
-      - ./mockserver:/app  # Mount source code directory
-      - /app/__pycache__  # Avoid overwriting cache files
-      - /app/.venv  # Avoid overwriting virtual environment
-    restart: unless-stopped
-    environment:
-      - MOCK_DATA_FILE=default.yaml
-      - MOCK_DELAY=1
     networks:
       - manus-network
 

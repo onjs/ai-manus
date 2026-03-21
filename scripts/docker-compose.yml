@@ -45,8 +45,6 @@ services:
     build:
       context: ./sandbox
       dockerfile: Dockerfile
-      args:
-        SANDBOX_BASE_IMAGE: ${SANDBOX_BASE_IMAGE:-ai-manus-sandbox-base:latest}
       x-bake:
         platforms:
           - linux/amd64

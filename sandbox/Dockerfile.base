@@ -6,15 +6,47 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set hostname to sandbox
 ENV HOSTNAME=sandbox
 
-ARG APT_MIRROR=""
-ARG APT_FLAGS='-o Acquire::ForceIPv4=true -o Acquire::Retries=8 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::http::Pipeline-Depth=0'
+ARG APT_MIRROR="http://mirrors.aliyun.com/ubuntu-ports/"
+ARG APT_FLAGS='-o Acquire::ForceIPv4=true -o Acquire::Retries=12 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o Acquire::http::Pipeline-Depth=0 -o Acquire::Queue-Mode=host'
 ARG INSTALL_CJK_FONTS="true"
 
 # Improve apt reliability in unstable networks
 RUN if [ -n "$APT_MIRROR" ]; then \
       sed -i "s|http://ports.ubuntu.com/ubuntu-ports/|$APT_MIRROR|g" /etc/apt/sources.list; \
     fi && \
-    printf 'Acquire::Retries "8";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::ForceIPv4 "true";\nAcquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/99-retry
+    printf 'Acquire::Retries "12";\nAcquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::ForceIPv4 "true";\nAcquire::http::Pipeline-Depth "0";\nAcquire::Queue-Mode "host";\n' > /etc/apt/apt.conf.d/99-retry
+
+# Install Chinese language support first, then optionally install large CJK fonts
+RUN set -eux; \
+    apt-get ${APT_FLAGS} update; \
+    apt-get ${APT_FLAGS} install -y \
+      language-pack-zh-hans \
+      locales \
+      fontconfig; \
+    if [ "$INSTALL_CJK_FONTS" = "true" ]; then \
+      ok=0; \
+      for i in 1 2 3 4 5; do \
+        if apt-get ${APT_FLAGS} install -y --fix-missing \
+          fonts-noto-cjk \
+          fonts-noto-color-emoji; then \
+          ok=1; \
+          break; \
+        fi; \
+        echo "Retrying CJK font install (${i}/5)"; \
+        apt-get ${APT_FLAGS} update || true; \
+        sleep 15; \
+      done; \
+      if [ "$ok" -ne 1 ]; then \
+        echo "Failed to install CJK fonts after retries"; \
+        exit 1; \
+      fi; \
+    else \
+      echo "Skipping CJK font install (INSTALL_CJK_FONTS=${INSTALL_CJK_FONTS})"; \
+    fi; \
+    locale-gen zh_CN.UTF-8; \
+    fc-cache -f -v; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 # Update and install basic tools
 RUN apt-get ${APT_FLAGS} update && apt-get ${APT_FLAGS} install -y \
@@ -74,37 +106,6 @@ RUN set -eux; \
       echo "Failed to install chromium after retries"; \
       exit 1; \
     fi; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Chinese language support first, then optionally install large CJK fonts
-RUN set -eux; \
-    apt-get ${APT_FLAGS} update; \
-    apt-get ${APT_FLAGS} install -y \
-      language-pack-zh-hans \
-      locales; \
-    if [ "$INSTALL_CJK_FONTS" = "true" ]; then \
-      ok=0; \
-      for i in 1 2 3 4 5; do \
-        if apt-get ${APT_FLAGS} install -y --fix-missing \
-          fonts-noto-cjk \
-          fonts-noto-color-emoji; then \
-          ok=1; \
-          break; \
-        fi; \
-        echo "Retrying CJK font install (${i}/5)"; \
-        apt-get ${APT_FLAGS} update || true; \
-        sleep 15; \
-      done; \
-      if [ "$ok" -ne 1 ]; then \
-        echo "Failed to install CJK fonts after retries"; \
-        exit 1; \
-      fi; \
-    else \
-      echo "Skipping CJK font install (INSTALL_CJK_FONTS=${INSTALL_CJK_FONTS})"; \
-    fi; \
-    locale-gen zh_CN.UTF-8; \
-    fc-cache -f -v; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
