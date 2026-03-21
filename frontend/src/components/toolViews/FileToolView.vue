@@ -92,7 +92,6 @@ const fileName = computed(() => {
 
 // Load file content
 const loadFileContent = async () => {
-  console.log("loadFileContent", props.live, filePath.value, props.toolContent.content);
   if (!props.live) {
     fileContent.value = props.toolContent.content?.content || "";
     return;
