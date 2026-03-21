@@ -222,13 +222,15 @@ class GatewayTaskRunner(TaskRunner):
             return None
 
         if tool_name == "file":
-            content_from_args = function_args.get("content")
-            if isinstance(content_from_args, str):
-                return FileToolContent(content=content_from_args)
-            if isinstance(payload, dict):
-                content = payload.get("content")
-                if isinstance(content, str):
-                    return FileToolContent(content=content)
+            if tool_status == ToolStatus.CALLED:
+                if "file" in function_args:
+                    file_path = function_args["file"]
+                    file_read_result = await self._sandbox.file_read(file_path)
+                    file_content = ""
+                    if isinstance(file_read_result.data, dict):
+                        file_content = file_read_result.data.get("content", "")
+                    return FileToolContent(content=file_content)
+                return FileToolContent(content="(No Content)")
             return None
 
         return McpToolContent(result=payload)

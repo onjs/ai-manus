@@ -121,6 +121,10 @@ class FakeSandbox:
         _ = file_path
         return BytesIO(b"hello")
 
+    async def file_read(self, file_path):
+        _ = file_path
+        return ToolResult(success=True, data={"content": "hello"})
+
 
 class FakeInputStream:
     def __init__(self, messages: list[str]):
@@ -391,7 +395,7 @@ async def test_gateway_flow_maps_shell_and_file_tool_content():
     assert isinstance(file_event, ToolEvent)
     assert file_event.tool_content is not None
     assert file_event.function_args["file"] == "/home/ubuntu/a.txt"
-    assert file_event.tool_content.content == "hello world"
+    assert file_event.tool_content.content == "hello"
 
 
 @pytest.mark.asyncio
@@ -698,7 +702,7 @@ async def test_gateway_runner_processes_all_pending_messages_without_premature_b
     ]
     task = FakeTask(messages)
 
-    async def _fake_run_gateway_flow(message: str, session_status: str, last_plan=None):  # noqa: ARG001
+    async def _fake_run_gateway_flow(message: str, session_status: str, last_plan=None, attachments=None):  # noqa: ARG001
         yield MessageEvent(role="assistant", message=f"ack:{message}")
         yield DoneEvent()
 
@@ -731,3 +735,4 @@ async def test_gateway_runner_sync_file_to_storage_adds_session_file():
     assert synced is not None
     assert synced.filename == "a.txt"
     assert len(repo._files) == 1
+
