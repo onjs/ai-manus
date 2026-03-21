@@ -22,7 +22,7 @@
 import { ref, watch } from 'vue';
 import MonacoEditor from '@/components/ui/MonacoEditor.vue';
 import type { FileInfo } from '../../api/file';
-import { getFileDownloadUrl } from '../../api/file';
+import { downloadFile } from '../../api/file';
 
 const content = ref('');
 
@@ -30,20 +30,15 @@ const props = defineProps<{
     file: FileInfo;
 }>();
 
-watch(() => props.file, async (file) => {
-    if (!file?.file_id) return;
+watch(() => props.file.file_id, async (fileId) => {
+    if (!fileId) return;
     try {
-        const fileUrl = await getFileDownloadUrl(file);
-        const response = await fetch(fileUrl, { credentials: 'include' });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const blob = await response.blob();
+        const blob = await downloadFile(fileId);
         const text = await blob.text();
         content.value = text;
     } catch (error) {
         console.error('Failed to load file content:', error);
         content.value = '(Failed to load file content)';
     }
-}, { immediate: true, deep: false });
+}, { immediate: true });
 </script>

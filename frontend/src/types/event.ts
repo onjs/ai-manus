@@ -23,10 +23,6 @@ export interface StepEventData extends BaseEventData {
   status: "pending" | "running" | "completed" | "failed"
   id: string
   description: string
-  blocked_reason?: string
-  success?: boolean
-  result?: string
-  error?: string
 }
 
 export interface MessageEventData extends BaseEventData {
@@ -43,8 +39,6 @@ export interface DoneEventData extends BaseEventData {
 }
 
 export interface WaitEventData extends BaseEventData {
-  reason?: string;
-  message?: string;
 }
 
 export interface TitleEventData extends BaseEventData {

@@ -142,7 +142,6 @@ import {
   ErrorEventData,
   TitleEventData,
   PlanEventData,
-  WaitEventData,
   AgentSSEEvent,
 } from '../types/event';
 import ToolPanel from '../components/ToolPanel.vue'
@@ -155,9 +154,7 @@ import { useLeftPanel } from '../composables/useLeftPanel'
 import { useSessionFileList } from '../composables/useSessionFileList'
 import { useFilePanel } from '../composables/useFilePanel'
 import { copyToClipboard } from '../utils/dom'
-import { formatAgentError } from '../utils/agentError';
 import { generateRequestId } from '../utils/requestId';
-import { sortSessionEvents } from '../utils/sessionEvent';
 import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
@@ -220,8 +217,6 @@ const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 const observerRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
 const seenEventIds = ref<Set<string>>(new Set());
-const stepsById = ref<Map<string, StepContent>>(new Map());
-const toolsByCallId = ref<Map<string, ToolContent>>(new Map());
 
 // Reset all refs to their initial values
 const resetState = () => {
@@ -233,8 +228,6 @@ const resetState = () => {
   // Reset reactive state to initial values
   Object.assign(state, createInitialState());
   seenEventIds.value.clear();
-  stepsById.value.clear();
-  toolsByCallId.value.clear();
 };
 
 // Watch message changes and automatically scroll to bottom
@@ -249,20 +242,6 @@ watch(messages, async () => {
 
 const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
-}
-
-const getLastRunningStep = (): StepContent | undefined => {
-  const steps = messages.value.filter(message => message.type === 'step').map(message => message.content as StepContent);
-  for (let i = steps.length - 1; i >= 0; i -= 1) {
-    if (steps[i].status === 'running') {
-      return steps[i];
-    }
-  }
-  return undefined;
-}
-
-const buildWaitMessage = (): string => {
-  return '任务已暂停，等待你接管操作（例如登录/验证码/确认）后继续。';
 }
 
 // Handle message event
@@ -286,23 +265,23 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
-  const runningStep = getLastRunningStep();
-  let toolContent = toolsByCallId.value.get(toolData.tool_call_id);
-  if (toolContent) {
-    Object.assign(toolContent, toolData);
+  const lastStep = getLastStep();
+  let toolContent: ToolContent = {
+    ...toolData
+  }
+  if (lastTool.value && lastTool.value.tool_call_id === toolContent.tool_call_id) {
+    Object.assign(lastTool.value, toolContent);
   } else {
-    toolContent = { ...toolData } as ToolContent;
-    if (runningStep) {
-      runningStep.tools.push(toolContent);
+    if (lastStep?.status === 'running') {
+      lastStep.tools.push(toolContent);
     } else {
       messages.value.push({
         type: 'tool',
         content: toolContent,
       });
     }
-    toolsByCallId.value.set(toolContent.tool_call_id, toolContent);
+    lastTool.value = toolContent;
   }
-  lastTool.value = toolContent;
   if (toolContent.name !== 'message') {
     lastNoMessageTool.value = toolContent;
     if (realTime.value) {
@@ -313,39 +292,21 @@ const handleToolEvent = (toolData: ToolEventData) => {
 
 // Handle step event
 const handleStepEvent = (stepData: StepEventData) => {
-  const existing = stepsById.value.get(stepData.id);
+  const lastStep = getLastStep();
   if (stepData.status === 'running') {
-    if (existing) {
-      Object.assign(existing, stepData);
-      return;
-    }
-    const created = {
-      ...stepData,
-      tools: []
-    } as StepContent;
-    messages.value.push({ type: 'step', content: created });
-    stepsById.value.set(stepData.id, created);
-    return;
-  }
-
-  if (existing) {
-    Object.assign(existing, stepData);
-  } else {
-    const fallback = {
-      ...stepData,
-      tools: []
-    } as StepContent;
-    messages.value.push({ type: 'step', content: fallback });
-    stepsById.value.set(stepData.id, fallback);
-  }
-
-  if (stepData.status === 'failed') {
-    isLoading.value = false;
+    messages.value.push({
+      type: 'step',
+      content: {
+        ...stepData,
+        tools: []
+      } as StepContent,
+    });
   } else if (stepData.status === 'completed') {
-    const lastStep = getLastStep();
-    if (lastStep && lastStep.id !== stepData.id && lastStep.status === 'running') {
-      lastStep.status = 'completed';
+    if (lastStep) {
+      lastStep.status = stepData.status;
     }
+  } else if (stepData.status === 'failed') {
+    isLoading.value = false;
   }
 }
 
@@ -355,19 +316,8 @@ const handleErrorEvent = (errorData: ErrorEventData) => {
   messages.value.push({
     type: 'assistant',
     content: {
-      content: formatAgentError(errorData.error),
+      content: errorData.error,
       timestamp: errorData.timestamp
-    } as MessageContent,
-  });
-}
-
-const handleWaitEvent = (waitData: WaitEventData) => {
-  isLoading.value = false;
-  messages.value.push({
-    type: 'assistant',
-    content: {
-      content: buildWaitMessage(),
-      timestamp: waitData.timestamp
     } as MessageContent,
   });
 }
@@ -399,9 +349,9 @@ const handleEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'done') {
-    isLoading.value = false;
+    //isLoading.value = false;
   } else if (event.event === 'wait') {
-    handleWaitEvent(event.data as WaitEventData);
+    // TODO: handle wait event
   } else if (event.event === 'error') {
     handleErrorEvent(event.data as ErrorEventData);
   } else if (event.event === 'title') {
@@ -507,7 +457,7 @@ const restoreSession = async () => {
   // Initialize share mode based on session state
   shareMode.value = session.is_shared ? 'public' : 'private';
   realTime.value = false;
-  for (const event of sortSessionEvents(session.events as AgentSSEEvent[])) {
+  for (const event of session.events) {
     handleEvent(event);
   }
   realTime.value = true;
