@@ -1,8 +1,9 @@
 """
 File operation API interfaces
 """
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from app.api.deps.internal_auth import verify_runtime_internal_key
 from app.schemas.file import (
     FileReadRequest, FileWriteRequest, FileReplaceRequest,
     FileSearchRequest, FileFindRequest
@@ -10,7 +11,8 @@ from app.schemas.file import (
 from app.schemas.response import Response
 from app.services.file import file_service
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(verify_runtime_internal_key)])
 
 @router.post("/read", response_model=Response)
 async def read_file(request: FileReadRequest):

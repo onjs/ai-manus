@@ -95,11 +95,10 @@ services:
       - ./sandbox/supervisord.conf:/etc/supervisor/conf.d/app.conf
       - /app/__pycache__  # Avoid overwriting cache files
       - /app/.venv  # Avoid overwriting virtual environment
-    ports:
-      - "9222:9222"
-      - "5900:5900"
-      - "5901:5901"
-      - "8080:8080"
+    expose:
+      - "5900"
+      - "5901"
+      - "8080"
     env_file:
       - .env
     environment:

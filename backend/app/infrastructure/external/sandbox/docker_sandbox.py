@@ -134,7 +134,10 @@ class DockerSandbox(Sandbox):
         
         for attempt in range(max_retries):
             try:
-                response = await self.client.get(f"{self.base_url}/api/v1/supervisor/status")
+                response = await self.client.get(
+                    f"{self.base_url}/api/v1/supervisor/status",
+                    headers=self._runtime_headers(),
+                )
                 response.raise_for_status()
                 
                 # Parse response as ToolResult
@@ -183,6 +186,7 @@ class DockerSandbox(Sandbox):
     async def exec_command(self, session_id: str, exec_dir: str, command: str) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/shell/exec",
+            headers=self._runtime_headers(),
             json={
                 "id": session_id,
                 "exec_dir": exec_dir,
@@ -194,6 +198,7 @@ class DockerSandbox(Sandbox):
     async def view_shell(self, session_id: str, console: bool = False) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/shell/view",
+            headers=self._runtime_headers(),
             json={
                 "id": session_id,
                 "console": console
@@ -204,6 +209,7 @@ class DockerSandbox(Sandbox):
     async def wait_for_process(self, session_id: str, seconds: Optional[int] = None) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/shell/wait",
+            headers=self._runtime_headers(),
             json={
                 "id": session_id,
                 "seconds": seconds
@@ -214,6 +220,7 @@ class DockerSandbox(Sandbox):
     async def write_to_process(self, session_id: str, input_text: str, press_enter: bool = True) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/shell/write",
+            headers=self._runtime_headers(),
             json={
                 "id": session_id,
                 "input": input_text,
@@ -225,6 +232,7 @@ class DockerSandbox(Sandbox):
     async def kill_process(self, session_id: str) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/shell/kill",
+            headers=self._runtime_headers(),
             json={"id": session_id}
         )
         return ToolResult(**response.json())
@@ -247,6 +255,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/write",
+            headers=self._runtime_headers(),
             json={
                 "file": file,
                 "content": content,
@@ -273,6 +282,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/read",
+            headers=self._runtime_headers(),
             json={
                 "file": file,
                 "start_line": start_line,
@@ -293,6 +303,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/exists",
+            headers=self._runtime_headers(),
             json={"path": path}
         )
         return ToolResult(**response.json())
@@ -308,6 +319,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/delete",
+            headers=self._runtime_headers(),
             json={"path": path}
         )
         return ToolResult(**response.json())
@@ -323,6 +335,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/list",
+            headers=self._runtime_headers(),
             json={"path": path}
         )
         return ToolResult(**response.json())
@@ -341,6 +354,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/replace",
+            headers=self._runtime_headers(),
             json={
                 "file": file,
                 "old_str": old_str,
@@ -363,6 +377,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/search",
+            headers=self._runtime_headers(),
             json={
                 "file": file,
                 "regex": regex,
@@ -383,6 +398,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/find",
+            headers=self._runtime_headers(),
             json={
                 "path": path,
                 "glob": glob_pattern
@@ -404,9 +420,14 @@ class DockerSandbox(Sandbox):
         # Prepare form data for upload
         files = {"file": (filename or "upload", file_data, "application/octet-stream")}
         data = {"path": path}
+        headers: Dict[str, str] = {}
+        internal_key = self._runtime_headers().get("X-Internal-Key")
+        if internal_key:
+            headers["X-Internal-Key"] = internal_key
         
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/upload",
+            headers=headers or None,
             files=files,
             data=data
         )
@@ -423,6 +444,7 @@ class DockerSandbox(Sandbox):
         """
         response = await self.client.get(
             f"{self.base_url}/api/v1/file/download",
+            headers=self._runtime_headers(),
             params={"path": path}
         )
         response.raise_for_status()
@@ -544,6 +566,13 @@ class DockerSandbox(Sandbox):
     async def runtime_cancel_runner(self, session_id: str) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/runtime/runs/{session_id}/cancel",
+            headers=self._runtime_headers(),
+        )
+        return ToolResult(**response.json())
+
+    async def runtime_clear_runner(self, session_id: str) -> ToolResult:
+        response = await self.client.delete(
+            f"{self.base_url}/api/v1/runtime/runs/{session_id}",
             headers=self._runtime_headers(),
         )
         return ToolResult(**response.json())

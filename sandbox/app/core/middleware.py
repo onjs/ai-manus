@@ -21,6 +21,7 @@ async def auto_extend_timeout_middleware(request: Request, call_next):
         supervisor_service.timeout_active and 
         request.url.path.startswith("/api/") and
         not request.url.path.startswith("/api/v1/supervisor/timeout/") and
+        request.headers.get("x-internal-key") == settings.SANDBOX_INTERNAL_API_KEY and
         supervisor_service.auto_expand_enabled):
         try:
             await supervisor_service.extend_timeout()
