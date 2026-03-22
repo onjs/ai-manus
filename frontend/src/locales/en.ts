@@ -44,6 +44,7 @@ export default {
   'Viewing webpage': 'Viewing webpage',
   'Navigating to webpage': 'Navigating to webpage',
   'Restarting browser': 'Restarting browser',
+  'Waiting for page load': 'Waiting for page load',
   'Clicking element': 'Clicking element',
   'Entering text': 'Entering text',
   'Moving mouse': 'Moving mouse',
