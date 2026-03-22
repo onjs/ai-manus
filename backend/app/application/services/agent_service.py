@@ -75,7 +75,7 @@ class AgentService:
         request_id: Optional[str] = None,
         attachments: Optional[List[dict]] = None
     ) -> AsyncGenerator[AgentEvent, None]:
-        logger.info(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
+        logger.debug(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
         # Directly use the domain service's chat method, which will check if the session exists
         async for event in self._agent_domain_service.chat(
             session_id,
@@ -88,11 +88,11 @@ class AgentService:
         ):
             logger.debug(f"Received event: {event}")
             yield event
-        logger.info(f"Chat with session {session_id} completed")
+        logger.debug(f"Chat with session {session_id} completed")
     
     async def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[Session]:
         """Get a session by ID, ensuring it belongs to the user"""
-        logger.info(f"Getting session {session_id} for user {user_id}")
+        logger.debug(f"Getting session {session_id} for user {user_id}")
         if not user_id:
             session = await self._session_repository.find_by_id(session_id)
         else:
@@ -103,7 +103,7 @@ class AgentService:
     
     async def get_all_sessions(self, user_id: str) -> List[Session]:
         """Get all sessions for a specific user"""
-        logger.info(f"Getting all sessions for user {user_id}")
+        logger.debug(f"Getting all sessions for user {user_id}")
         return await self._session_repository.find_by_user_id(user_id)
 
     async def delete_session(self, session_id: str, user_id: str) -> None:
@@ -143,7 +143,7 @@ class AgentService:
 
     async def shell_view(self, session_id: str, shell_session_id: str, user_id: str) -> ShellViewResponse:
         """View shell session output, ensuring session belongs to the user"""
-        logger.info(f"Getting shell view for session {session_id} for user {user_id}")
+        logger.debug(f"Getting shell view for session {session_id} for user {user_id}")
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
@@ -165,7 +165,7 @@ class AgentService:
 
     async def get_vnc_url(self, session_id: str) -> str:
         """Get VNC URL for a session, ensuring it belongs to the user"""
-        logger.info(f"Getting VNC URL for session {session_id}")
+        logger.debug(f"Getting VNC URL for session {session_id}")
         
         session = await self._session_repository.find_by_id(session_id)
         if not session:
@@ -184,7 +184,7 @@ class AgentService:
 
     async def file_view(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
         """View file content, ensuring session belongs to the user"""
-        logger.info(f"Getting file view for session {session_id} for user {user_id}")
+        logger.debug(f"Getting file view for session {session_id} for user {user_id}")
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
@@ -208,7 +208,7 @@ class AgentService:
     
     async def is_session_shared(self, session_id: str) -> bool:
         """Check if a session is shared"""
-        logger.info(f"Checking if session {session_id} is shared")
+        logger.debug(f"Checking if session {session_id} is shared")
         session = await self._session_repository.find_by_id(session_id)
         if not session:
             logger.error(f"Session {session_id} not found")
@@ -217,7 +217,7 @@ class AgentService:
 
     async def get_session_files(self, session_id: str, user_id: Optional[str] = None) -> List[FileInfo]:
         """Get files for a session, ensuring it belongs to the user"""
-        logger.info(f"Getting files for session {session_id} for user {user_id}")
+        logger.debug(f"Getting files for session {session_id} for user {user_id}")
         session = await self.get_session(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
@@ -226,7 +226,7 @@ class AgentService:
     
     async def get_shared_session_files(self, session_id: str) -> List[FileInfo]:
         """Get files for a shared session"""
-        logger.info(f"Getting files for shared session {session_id}")
+        logger.debug(f"Getting files for shared session {session_id}")
         session = await self._session_repository.find_by_id(session_id)
         if not session or not session.is_shared:
             logger.error(f"Shared session {session_id} not found or not shared")
@@ -259,7 +259,7 @@ class AgentService:
 
     async def get_shared_session(self, session_id: str) -> Optional[Session]:
         """Get a shared session by ID (no user authentication required)"""
-        logger.info(f"Getting shared session {session_id}")
+        logger.debug(f"Getting shared session {session_id}")
         session = await self._session_repository.find_by_id(session_id)
         if not session or not session.is_shared:
             logger.error(f"Shared session {session_id} not found or not shared")
