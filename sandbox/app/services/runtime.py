@@ -4,6 +4,7 @@ from typing import Any
 from app.core.config import settings
 from app.schemas.runtime import RuntimeGatewayConfigRequest
 from app.services.runtime_store import runtime_store
+from app.services.runtime_session_id import ensure_valid_session_id
 
 
 class RuntimeService:
@@ -13,6 +14,7 @@ class RuntimeService:
         self._store = runtime_store
 
     async def configure_gateway(self, request: RuntimeGatewayConfigRequest) -> dict[str, Any]:
+        request.session_id = ensure_valid_session_id(request.session_id)
         self._store.set_gateway_credential(
             session_id=request.session_id,
             gateway_base_url=request.gateway_base_url.rstrip("/"),
@@ -28,13 +30,16 @@ class RuntimeService:
         }
 
     async def clear_gateway(self, session_id: str) -> dict[str, Any]:
+        session_id = ensure_valid_session_id(session_id)
         existed = self._store.clear_gateway_credential(session_id)
         return {"session_id": session_id, "cleared": existed}
 
     def has_gateway_config(self, session_id: str) -> bool:
+        session_id = ensure_valid_session_id(session_id)
         return self._store.has_gateway_credential(session_id)
 
     def get_chat_model_kwargs(self, session_id: str) -> dict[str, Any]:
+        session_id = ensure_valid_session_id(session_id)
         try:
             credential = self._store.get_gateway_credential(session_id)
         except ValueError:

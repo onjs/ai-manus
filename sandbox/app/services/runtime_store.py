@@ -6,6 +6,10 @@ from typing import Any, Optional
 
 from app.core.config import settings
 from app.services.secret_cipher import SecretCipher
+from app.services.runtime_session_id import ensure_valid_session_id
+
+
+RUNNING_STATUSES = {"starting", "running"}
 
 
 class RuntimeStore:
@@ -23,6 +27,10 @@ class RuntimeStore:
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         return conn
+
+    @staticmethod
+    def _normalize_session_id(session_id: str) -> str:
+        return ensure_valid_session_id(session_id)
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -102,6 +110,7 @@ class RuntimeStore:
         gateway_token_expire_at: int,
         scopes: list[str],
     ) -> None:
+        session_id = self._normalize_session_id(session_id)
         now = int(time.time())
         encrypted_gateway_token = self._secret_cipher.encrypt(gateway_token)
         with self._connect() as conn:
@@ -131,11 +140,13 @@ class RuntimeStore:
             )
 
     def clear_gateway_credential(self, session_id: str) -> bool:
+        session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM gateway_credentials WHERE session_id = ?", (session_id,))
             return cur.rowcount > 0
 
     def get_gateway_credential(self, session_id: str) -> Optional[dict[str, Any]]:
+        session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -161,6 +172,7 @@ class RuntimeStore:
         }
 
     def has_gateway_credential(self, session_id: str) -> bool:
+        session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT 1 FROM gateway_credentials WHERE session_id = ?",
@@ -178,6 +190,7 @@ class RuntimeStore:
         error: str | None = None,
         reset_events: bool = False,
     ) -> dict[str, Any]:
+        session_id = self._normalize_session_id(session_id)
         now = int(time.time())
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -210,6 +223,82 @@ class RuntimeStore:
             conn.execute("COMMIT")
         return self.get_run(session_id) or {"session_id": session_id, "status": status}
 
+    def start_run_atomic(
+        self,
+        *,
+        session_id: str,
+        agent_id: str,
+        user_id: str,
+        message: str | None,
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        session_id = self._normalize_session_id(session_id)
+        now = int(time.time())
+        payload_json = json.dumps(payload, ensure_ascii=False)
+
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute(
+                    """
+                    SELECT session_id, agent_id, user_id, status, message, error,
+                           created_at, started_at, finished_at, last_heartbeat_at, next_seq
+                    FROM runs
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                ).fetchone()
+                if row and str(row["status"]) in RUNNING_STATUSES:
+                    conn.execute("COMMIT")
+                    return {
+                        "session_id": row["session_id"],
+                        "agent_id": row["agent_id"],
+                        "user_id": row["user_id"],
+                        "status": row["status"],
+                        "message": row["message"],
+                        "error": row["error"],
+                        "created_at": int(row["created_at"]),
+                        "started_at": int(row["started_at"]) if row["started_at"] is not None else None,
+                        "finished_at": int(row["finished_at"]) if row["finished_at"] is not None else None,
+                        "last_heartbeat_at": int(row["last_heartbeat_at"]),
+                        "next_seq": int(row["next_seq"]),
+                    }, False
+
+                created_at = int(row["created_at"]) if row else now
+                conn.execute(
+                    """
+                    INSERT INTO runs(
+                        session_id, agent_id, user_id, status, message, error,
+                        created_at, started_at, finished_at, last_heartbeat_at, next_seq
+                    ) VALUES (?, ?, ?, 'starting', ?, NULL, ?, NULL, NULL, ?, 1)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        agent_id=excluded.agent_id,
+                        user_id=excluded.user_id,
+                        status='starting',
+                        message=excluded.message,
+                        error=NULL,
+                        last_heartbeat_at=excluded.last_heartbeat_at,
+                        started_at=NULL,
+                        finished_at=NULL,
+                        next_seq=1
+                    """,
+                    (session_id, agent_id, user_id, message, created_at, now),
+                )
+                conn.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
+                conn.execute(
+                    """
+                    INSERT INTO commands(session_id, command_type, payload_json, status, error, created_at, processed_at)
+                    VALUES (?, 'start', ?, 'pending', NULL, ?, NULL)
+                    """,
+                    (session_id, payload_json, now),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+        return self.get_run(session_id) or {"session_id": session_id, "status": "starting"}, True
+
     def update_run_status(
         self,
         session_id: str,
@@ -219,6 +308,7 @@ class RuntimeStore:
         set_started: bool = False,
         set_finished: bool = False,
     ) -> bool:
+        session_id = self._normalize_session_id(session_id)
         now = int(time.time())
         with self._connect() as conn:
             row = conn.execute("SELECT 1 FROM runs WHERE session_id = ?", (session_id,)).fetchone()
@@ -240,6 +330,7 @@ class RuntimeStore:
             return True
 
     def touch_run_heartbeat(self, session_id: str) -> bool:
+        session_id = self._normalize_session_id(session_id)
         now = int(time.time())
         with self._connect() as conn:
             cur = conn.execute(
@@ -249,6 +340,7 @@ class RuntimeStore:
             return cur.rowcount > 0
 
     def get_run(self, session_id: str) -> Optional[dict[str, Any]]:
+        session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -276,12 +368,14 @@ class RuntimeStore:
         }
 
     def delete_run(self, session_id: str) -> bool:
+        session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:
             conn.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
             cur = conn.execute("DELETE FROM runs WHERE session_id = ?", (session_id,))
             return cur.rowcount > 0
 
     def append_event(self, session_id: str, event: str, data: dict[str, Any]) -> int:
+        session_id = self._normalize_session_id(session_id)
         now = int(time.time())
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -312,6 +406,7 @@ class RuntimeStore:
         return seq
 
     def get_events(self, session_id: str, from_seq: int = 1, limit: int = 200) -> list[dict[str, Any]]:
+        session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -334,6 +429,7 @@ class RuntimeStore:
         ]
 
     def enqueue_command(self, session_id: str, command_type: str, payload: dict[str, Any]) -> int:
+        session_id = self._normalize_session_id(session_id)
         now = int(time.time())
         with self._connect() as conn:
             cur = conn.execute(

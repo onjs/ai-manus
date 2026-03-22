@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 
 from app.schemas.runtime_runner import RuntimeRunnerStartRequest
@@ -36,6 +37,7 @@ async def test_runner_service_enqueues_start_cancel_clear(tmp_path):
             user_id="u1",
             sandbox_id="sbx1",
             message="hello",
+            session_status="running",
         )
     )
     assert started["started"] is True
@@ -77,6 +79,7 @@ async def test_runner_service_requires_gateway_config(tmp_path):
                 user_id="u1",
                 sandbox_id="sbx1",
                 message="hello",
+                session_status="running",
             )
         )
 
@@ -103,6 +106,7 @@ async def test_runner_service_start_is_idempotent_when_already_running(tmp_path)
         user_id="u1",
         sandbox_id="sbx1",
         message="hello",
+        session_status="running",
     )
     first = await service.start_run(request)
     second = await service.start_run(request)
@@ -112,6 +116,40 @@ async def test_runner_service_start_is_idempotent_when_already_running(tmp_path)
     pending = store.get_pending_commands(limit=10)
     assert len(pending) == 1
     assert pending[0]["command_type"] == "start"
+
+
+@pytest.mark.asyncio
+async def test_runner_service_start_is_atomic_under_concurrency(tmp_path):
+    store = RuntimeStore(db_path=str(tmp_path / "runtime_concurrency.db"))
+    runtime = FakeRuntimeService(store)
+    service = RuntimeRunnerService(runtime)
+    service._store = store
+
+    store.set_gateway_credential(
+        session_id="s1",
+        gateway_base_url="http://gateway:8100",
+        gateway_token="token",
+        gateway_token_id="tid",
+        gateway_token_expire_at=9999999999,
+        scopes=["llm:stream"],
+    )
+
+    request = RuntimeRunnerStartRequest(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        sandbox_id="sbx1",
+        message="hello",
+        session_status="running",
+    )
+    results = await asyncio.gather(
+        *[service.start_run(request) for _ in range(20)]
+    )
+    started_count = sum(1 for item in results if item.get("started") is True)
+    assert started_count == 1
+    pending = store.get_pending_commands(limit=100)
+    start_commands = [cmd for cmd in pending if cmd["command_type"] == "start"]
+    assert len(start_commands) == 1
 
 
 @pytest.mark.asyncio

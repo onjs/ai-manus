@@ -78,6 +78,7 @@ async def test_runtime_runner_start_is_idempotent_via_api(isolated_runtime_store
         user_id="u1",
         sandbox_id="sbx1",
         message="hello",
+        session_status="running",
     )
     headers = {"X-Internal-Key": settings.SANDBOX_INTERNAL_API_KEY, "Content-Type": "application/json"}
     transport = ASGITransport(app=runtime_runner_api_app)
@@ -147,3 +148,25 @@ async def test_runtime_runner_stream_reconnect_from_seq_via_api(isolated_runtime
 
     assert first_seq == [1]
     assert resumed_seq == [2, 3]
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_rejects_invalid_session_id(runtime_runner_api_app):
+    headers = {"X-Internal-Key": settings.SANDBOX_INTERNAL_API_KEY, "Content-Type": "application/json"}
+    payload = {
+        "session_id": "../bad",
+        "agent_id": "a1",
+        "user_id": "u1",
+        "sandbox_id": "sbx1",
+        "message": "hello",
+        "attachments": [],
+        "session_status": "running",
+        "last_plan": None,
+    }
+
+    transport = ASGITransport(app=runtime_runner_api_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post("/api/v1/runtime/runs/start", headers=headers, json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid session_id format"

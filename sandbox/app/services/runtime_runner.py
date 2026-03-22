@@ -19,26 +19,14 @@ class RuntimeRunnerService:
         if not self._gateway_runtime.has_gateway_config(request.session_id):
             raise ValueError("Gateway runtime is not configured for this session")
 
-        existing = self._store.get_run(request.session_id)
-        if existing and existing.get("status") in RUNNING_STATUSES:
-            existing["started"] = False
-            return existing
-
-        run = self._store.upsert_run(
+        run, started = self._store.start_run_atomic(
             session_id=request.session_id,
             agent_id=request.agent_id,
             user_id=request.user_id,
-            status="starting",
             message=request.message,
-            error=None,
-            reset_events=True,
-        )
-        self._store.enqueue_command(
-            session_id=request.session_id,
-            command_type="start",
             payload=request.model_dump(),
         )
-        run["started"] = True
+        run["started"] = started
         return run
 
     async def cancel_run(self, session_id: str) -> dict[str, Any]:
