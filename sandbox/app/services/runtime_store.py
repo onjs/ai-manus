@@ -405,6 +405,67 @@ class RuntimeStore:
             conn.execute("COMMIT")
         return seq
 
+    def prune_delivered_event_payload(self, session_id: str, seq: int) -> bool:
+        """Prune large payload fields after event has been delivered to backend.
+
+        Current rule: remove browser screenshot payload from persisted sqlite events.
+        """
+        session_id = self._normalize_session_id(session_id)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT event, data_json
+                FROM events
+                WHERE session_id = ? AND seq = ?
+                """,
+                (session_id, int(seq)),
+            ).fetchone()
+            if not row:
+                return False
+
+            event_name = str(row["event"] or "")
+            if event_name != "tool":
+                return False
+
+            try:
+                data = json.loads(row["data_json"] or "{}")
+            except Exception:
+                return False
+            if not isinstance(data, dict):
+                return False
+
+            changed = False
+            tool_content = data.get("tool_content")
+            if isinstance(tool_content, dict) and "screenshot" in tool_content:
+                # Keep event metadata; remove heavy screenshot body.
+                data.pop("tool_content", None)
+                changed = True
+
+            function_result = data.get("function_result")
+            if isinstance(function_result, dict):
+                if "screenshot" in function_result:
+                    function_result.pop("screenshot", None)
+                    changed = True
+                if "image_base64" in function_result:
+                    function_result.pop("image_base64", None)
+                    changed = True
+                if "image" in function_result and isinstance(function_result.get("image"), str):
+                    function_result.pop("image", None)
+                    changed = True
+
+            if not changed:
+                return False
+
+            conn.execute(
+                """
+                UPDATE events
+                SET data_json = ?
+                WHERE session_id = ? AND seq = ?
+                """,
+                (json.dumps(data, ensure_ascii=False), session_id, int(seq)),
+            )
+            return True
+
     def get_events(self, session_id: str, from_seq: int = 1, limit: int = 200) -> list[dict[str, Any]]:
         session_id = self._normalize_session_id(session_id)
         with self._connect() as conn:

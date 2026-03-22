@@ -82,3 +82,38 @@ def test_runtime_store_purges_legacy_plaintext_gateway_tokens(tmp_path):
     # Re-open store to trigger bootstrap cleanup.
     refreshed = RuntimeStore(db_path=db_path)
     assert refreshed.has_gateway_credential("legacy-s1") is False
+
+
+def test_runtime_store_prunes_delivered_browser_screenshot_payload(tmp_path):
+    db_path = str(tmp_path / "runtime_prune.db")
+    store = RuntimeStore(db_path=db_path)
+
+    store.upsert_run(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        status="running",
+        message="hello",
+        reset_events=True,
+    )
+    seq = store.append_event(
+        "s1",
+        "tool",
+        {
+            "type": "tool",
+            "tool_name": "browser",
+            "function_name": "browser_view",
+            "function_args": {},
+            "status": "called",
+            "tool_content": {"screenshot": "data:image/png;base64,AAA"},
+            "function_result": {"ok": True, "screenshot": "data:image/png;base64,BBB"},
+        },
+    )
+
+    changed = store.prune_delivered_event_payload("s1", seq)
+    assert changed is True
+
+    event = store.get_events("s1", from_seq=1, limit=10)[0]
+    data = event["data"]
+    assert "tool_content" not in data
+    assert "screenshot" not in (data.get("function_result") or {})

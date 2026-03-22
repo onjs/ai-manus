@@ -107,6 +107,11 @@ class RuntimeRunnerService:
                         "timestamp": int(record.get("timestamp", 0)),
                     },
                 )
+                # After event has been streamed out, prune heavy screenshot body from sqlite event payload.
+                self._store.prune_delivered_event_payload(session_id, seq)
+                if isinstance(payload, dict):
+                    payload.clear()
+                record["data"] = {}
 
             if status in {"completed", "failed", "cancelled", "waiting", "not_found"}:
                 return
