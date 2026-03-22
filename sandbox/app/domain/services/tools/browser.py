@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 from app.domain.external.browser import Browser
 from app.domain.services.tools.base import BaseToolkit
@@ -164,4 +165,20 @@ class BrowserToolkit(BaseToolkit):
         Args:
             max_lines: (Optional) Maximum number of log lines to return.
         """
-        return await self.browser.console_view(max_lines) 
+        return await self.browser.console_view(max_lines)
+
+    @tool(parse_docstring=True)
+    async def browser_wait(
+        self,
+        seconds: Optional[float] = 3.0
+    ) -> ToolResult:
+        """Wait for a short duration before next browser action. Use when page needs extra time for async rendering.
+
+        Args:
+            seconds: (Optional) Wait duration in seconds. Defaults to 3.0.
+        """
+        wait_seconds = float(seconds if seconds is not None else 3.0)
+        if wait_seconds < 0:
+            wait_seconds = 0.0
+        await asyncio.sleep(wait_seconds)
+        return ToolResult(success=True, data={"waited_seconds": wait_seconds})
