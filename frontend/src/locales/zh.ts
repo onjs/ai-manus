@@ -44,6 +44,7 @@ export default {
   'Viewing webpage': '正在查看网页',
   'Navigating to webpage': '正在导航到网页',
   'Restarting browser': '正在重启浏览器',
+  'Waiting for page load': '正在等待页面加载',
   'Clicking element': '正在点击元素',
   'Entering text': '正在输入文本',
   'Moving mouse': '正在移动鼠标',
