@@ -103,6 +103,11 @@ class RuntimeRunnerService:
                         "timestamp": int(record.get("timestamp", 0)),
                     },
                 )
+                # Queue semantics: once delivered to backend stream, remove event from in-memory queue.
+                await self._registry.ack_events_through(session_id, seq)
+                if isinstance(payload, dict):
+                    payload.clear()
+                record["data"] = {}
 
             if status in TERMINAL_STATUSES or status == "not_found":
                 return

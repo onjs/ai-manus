@@ -145,6 +145,36 @@ async def test_runner_service_stream_events_stops_on_waiting_status():
 
 
 @pytest.mark.asyncio
+async def test_runner_service_consumed_events_are_dequeued():
+    runtime = FakeRuntimeService(has_config=True)
+    service = RuntimeRunnerService(runtime)
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
+    registry = service._registry  # noqa: SLF001
+
+    await registry.upsert_run(
+        session_id="s1",
+        agent_id="a1",
+        user_id="u1",
+        status="completed",
+        message="hello",
+        error=None,
+        reset_events=True,
+    )
+    await registry.append_event("s1", "message", {"role": "assistant", "message": "hello"})
+    await registry.append_event("s1", "done", {})
+
+    out = []
+    async for event_name, data in service.stream_events("s1", from_seq=1, limit=10):
+        out.append((event_name, data))
+
+    assert [event for event, _ in out] == ["message", "done"]
+
+    # Consumed events are removed from in-memory queue.
+    remaining = await service.get_events("s1", from_seq=1, limit=10)
+    assert remaining["events"] == []
+
+
+@pytest.mark.asyncio
 async def test_runner_service_cancel_noop_for_terminal_status():
     runtime = FakeRuntimeService(has_config=True)
     service = RuntimeRunnerService(runtime)

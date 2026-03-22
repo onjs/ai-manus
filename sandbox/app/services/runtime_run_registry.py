@@ -263,6 +263,20 @@ class RuntimeRunRegistry:
             state.condition.notify_all()
             return seq
 
+    async def ack_events_through(self, session_id: str, seq: int) -> int:
+        """Acknowledge and remove events with sequence <= seq for queue semantics."""
+        async with self._registry_lock:
+            state = self._runs.get(session_id)
+        if state is None:
+            return 0
+
+        removed = 0
+        async with state.lock:
+            while state.events and state.events[0].seq <= seq:
+                state.events.pop(0)
+                removed += 1
+        return removed
+
     async def get_events(
         self,
         session_id: str,

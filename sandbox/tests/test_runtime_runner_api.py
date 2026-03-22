@@ -163,6 +163,10 @@ async def test_runtime_runner_stream_reconnect_from_seq_via_api(isolated_runtime
     assert first_seq == [1]
     assert resumed_seq == [2, 3]
 
+    # Queue semantics: all delivered events are removed from in-memory queue.
+    remaining = await registry.get_events("s1", from_seq=1, limit=10)
+    assert remaining == []
+
 
 @pytest.mark.asyncio
 async def test_runtime_runner_rejects_invalid_session_id(runtime_runner_api_app):
