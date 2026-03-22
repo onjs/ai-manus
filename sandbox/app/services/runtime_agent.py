@@ -161,7 +161,7 @@ class RuntimeAgentService:
 
     @staticmethod
     def _create_browser() -> Browser:
-        cdp_url = "http://127.0.0.1:9222"
+        cdp_url = "http://127.0.0.1:8222"
         engine = (settings.BROWSER_ENGINE or "playwright").strip().lower()
         if engine == "browser_use":
             logger.info("Runtime agent using BrowserUseBrowser (%s)", cdp_url)
