@@ -37,6 +37,8 @@ def setup_logging():
     logging.getLogger("pymongo").setLevel(logging.WARNING)
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("sse_starlette.sse").setLevel(logging.INFO)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     
     # Log initialization complete
     root_logger.info("Logging system initialized - Console and file logging active") 
