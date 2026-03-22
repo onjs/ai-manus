@@ -109,26 +109,26 @@ class PlanActFlow(BaseFlow):
         await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)  
         self.plan = session.get_last_plan()
 
-        logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
+        logger.debug(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
         step = None
         while True:
             if self.status == AgentStatus.IDLE:
-                logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
+                logger.debug(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
                 self.status = AgentStatus.PLANNING
             elif self.status == AgentStatus.PLANNING:
                 # Create plan
-                logger.info(f"Agent {self._agent_id} started creating plan")
+                logger.debug(f"Agent {self._agent_id} started creating plan")
                 async for event in self.planner.create_plan(message):
                     if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                         self.plan = event.plan
-                        logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
+                        logger.debug(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
                         yield TitleEvent(title=event.plan.title)
                         yield MessageEvent(role="assistant", message=event.plan.message)
                     yield event
-                logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
+                logger.debug(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
                 self.status = AgentStatus.EXECUTING
                 if len(event.plan.steps) == 0:
-                    logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
+                    logger.debug(f"Agent {self._agent_id} created plan successfully with no steps")
                     self.status = AgentStatus.COMPLETED
                     
             elif self.status == AgentStatus.EXECUTING:
@@ -136,40 +136,40 @@ class PlanActFlow(BaseFlow):
                 self.plan.status = ExecutionStatus.RUNNING
                 step = self.plan.get_next_step()
                 if not step:
-                    logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
+                    logger.debug(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
                     self.status = AgentStatus.SUMMARIZING
                     continue
                 # Execute step
-                logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
+                logger.debug(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
                 async for event in self.executor.execute_step(self.plan, step, message):
                     yield event
-                logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
+                logger.debug(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
                 await self.executor.compact_memory()
                 logger.debug(f"Agent {self._agent_id} compacted memory")
                 self.status = AgentStatus.UPDATING
             elif self.status == AgentStatus.UPDATING:
                 # Update plan
-                logger.info(f"Agent {self._agent_id} started updating plan")
+                logger.debug(f"Agent {self._agent_id} started updating plan")
                 async for event in self.planner.update_plan(self.plan, step):
                     yield event
-                logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
+                logger.debug(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
                 self.status = AgentStatus.EXECUTING
             elif self.status == AgentStatus.SUMMARIZING:
                 # Conclusion
-                logger.info(f"Agent {self._agent_id} started summarizing")
+                logger.debug(f"Agent {self._agent_id} started summarizing")
                 async for event in self.executor.summarize():
                     yield event
-                logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
+                logger.debug(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
                 self.status = AgentStatus.COMPLETED
             elif self.status == AgentStatus.COMPLETED:
                 self.plan.status = ExecutionStatus.COMPLETED
-                logger.info(f"Agent {self._agent_id} plan has been completed")
+                logger.debug(f"Agent {self._agent_id} plan has been completed")
                 yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
                 self.status = AgentStatus.IDLE
                 break
         yield DoneEvent()
         
-        logger.info(f"Agent {self._agent_id} message processing completed")
+        logger.debug(f"Agent {self._agent_id} message processing completed")
     
     def is_done(self) -> bool:
         return self.status == AgentStatus.IDLE

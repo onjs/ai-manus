@@ -157,7 +157,6 @@ class RuntimeAgentService:
     def __init__(self, gateway_runtime: RuntimeService):
         self._gateway_runtime = gateway_runtime
         self._agent_repository = in_memory_agent_repository
-        self._browser: Browser = self._create_browser()
 
     @staticmethod
     def _create_browser() -> Browser:
@@ -169,21 +168,21 @@ class RuntimeAgentService:
         logger.info("Runtime agent using PlaywrightBrowser (%s)", cdp_url)
         return PlaywrightBrowser(cdp_url)
 
-    def _build_flow(self, *, session_id: str, agent_id: str) -> PlanActFlow:
+    def _build_flow(self, *, session_id: str, agent_id: str, browser: Browser) -> PlanActFlow:
         model_kwargs = self._gateway_runtime.get_chat_model_kwargs(session_id)
         return PlanActFlow(
             agent_id=agent_id,
             agent_repository=self._agent_repository,
             session_id=session_id,
             session_repository=runtime_session_repository,
-            sandbox=RuntimeSandboxAdapter(self._browser),
-            browser=self._browser,
+            sandbox=RuntimeSandboxAdapter(browser),
+            browser=browser,
             mcp_tool=MCPToolkit(),
             search_engine=RuntimeSearchAdapter(),
             model_kwargs=model_kwargs,
         )
 
-    async def _enrich_tool_event(self, event: AgentEvent) -> AgentEvent:
+    async def _enrich_tool_event(self, event: AgentEvent, browser: Browser) -> AgentEvent:
         if not isinstance(event, ToolEvent):
             return event
         if event.tool_name != "browser" or event.status != ToolStatus.CALLED:
@@ -192,7 +191,7 @@ class RuntimeAgentService:
             return event
 
         try:
-            image_bytes = await self._browser.screenshot(full_page=False)
+            image_bytes = await browser.screenshot(full_page=False)
             screenshot = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
             return event.model_copy(update={"tool_content": BrowserToolContent(screenshot=screenshot)})
         except Exception as exc:
@@ -218,6 +217,7 @@ class RuntimeAgentService:
         last_plan: dict[str, Any] | None,
     ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
         _ = (user_id, sandbox_id)
+        browser = self._create_browser()
         try:
             await runtime_session_repository.seed(
                 session_id=session_id,
@@ -227,10 +227,17 @@ class RuntimeAgentService:
                 status=session_status,
                 last_plan=last_plan,
             )
-            flow = self._build_flow(session_id=session_id, agent_id=agent_id)
+            flow = self._build_flow(session_id=session_id, agent_id=agent_id, browser=browser)
             async for event in flow.run(Message(message=user_message, attachments=list(attachments or []))):
-                event = await self._enrich_tool_event(event)
+                event = await self._enrich_tool_event(event, browser)
                 yield self._map_event(event)
         except Exception as e:
             err = ErrorEvent(error=str(e))
             yield self._map_event(err)
+        finally:
+            cleanup = getattr(browser, "cleanup", None)
+            if callable(cleanup):
+                try:
+                    await cleanup()
+                except Exception as exc:
+                    logger.warning("Failed to cleanup browser for session %s: %s", session_id, exc)

@@ -91,7 +91,7 @@ class ShellService:
         """
         Asynchronously execute a command in the specified shell session
         """
-        logger.info(f"Executing command in session {session_id}: {command}")
+        logger.debug(f"Executing command in session {session_id}: {command}")
         if not exec_dir:
             exec_dir = os.path.expanduser("~")
         # Ensure directory exists
@@ -253,7 +253,7 @@ class ShellService:
                 seconds = 60
             await asyncio.wait_for(process.wait(), timeout=seconds)
             
-            logger.info(f"Process completed with return code: {process.returncode}")
+            logger.debug(f"Process completed with return code: {process.returncode}")
             return ShellWaitResult(
                 returncode=process.returncode
             )
@@ -298,7 +298,7 @@ class ShellService:
             process.stdin.write(input_data)
             await process.stdin.drain()
             
-            logger.info(f"Successfully wrote input to process")
+            logger.debug(f"Successfully wrote input to process")
             
             return ShellWriteResult(
                 status="success"
@@ -311,7 +311,7 @@ class ShellService:
         """
         Asynchronously terminate the process in the specified shell session
         """
-        logger.info(f"Killing process in session: {session_id}")
+        logger.debug(f"Killing process in session: {session_id}")
         if session_id not in self.active_shells:
             logger.error(f"Session ID not found: {session_id}")
             raise ResourceNotFoundException(f"Session ID does not exist: {session_id}")
@@ -333,13 +333,13 @@ class ShellService:
                     process.kill()
                     await process.wait()
                 
-                logger.info(f"Process terminated with return code: {process.returncode}")
+                logger.debug(f"Process terminated with return code: {process.returncode}")
                 return ShellKillResult(
                     status="terminated",
                     returncode=process.returncode
                 )
             else:
-                logger.info(f"Process was already terminated with return code: {process.returncode}")
+                logger.debug(f"Process was already terminated with return code: {process.returncode}")
                 return ShellKillResult(
                     status="already_terminated",
                     returncode=process.returncode
