@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 
+from app.api.deps.internal_auth import verify_runtime_internal_key
 from app.schemas.response import Response
 from app.services.supervisor import supervisor_service
 
@@ -11,7 +12,7 @@ class TimeoutRequest(BaseModel):
     minutes: Optional[int] = None
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(verify_runtime_internal_key)])
 
 @router.get("/status", response_model=Response)
 async def get_status():

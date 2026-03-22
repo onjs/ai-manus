@@ -3,14 +3,14 @@ from typing import Any
 
 from app.core.config import settings
 from app.schemas.runtime import RuntimeGatewayConfigRequest
-from app.services.runtime_store import runtime_store
+from app.services.runtime_credential_store import runtime_credential_store
 
 
 class RuntimeService:
     """Gateway credential store and model config provider for sandbox runtime."""
 
     def __init__(self):
-        self._store = runtime_store
+        self._store = runtime_credential_store
 
     async def configure_gateway(self, request: RuntimeGatewayConfigRequest) -> dict[str, Any]:
         self._store.set_gateway_credential(

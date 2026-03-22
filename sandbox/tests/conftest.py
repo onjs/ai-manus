@@ -14,12 +14,18 @@ import requests
 
 # Base URL for API testing
 BASE_URL = "http://localhost:8080"
+INTERNAL_KEY = os.getenv("SANDBOX_INTERNAL_API_KEY", "test-key")
 
 @pytest.fixture
 def client():
     """Create requests session"""
     session = requests.Session()
-    session.headers.update({"Content-Type": "application/json"})
+    session.headers.update(
+        {
+            "Content-Type": "application/json",
+            "X-Internal-Key": INTERNAL_KEY,
+        }
+    )
     return session
 
 
@@ -31,7 +37,12 @@ def temp_test_file():
     # Create content via API
     import requests
     session = requests.Session()
-    session.headers.update({"Content-Type": "application/json"})
+    session.headers.update(
+        {
+            "Content-Type": "application/json",
+            "X-Internal-Key": INTERNAL_KEY,
+        }
+    )
     
     content = "Line 1: Hello World\nLine 2: This is a test\nLine 3: Python testing"
     session.post(f"{BASE_URL}/api/v1/file/write", json={

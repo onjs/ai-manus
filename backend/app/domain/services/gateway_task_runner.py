@@ -305,10 +305,27 @@ class GatewayTaskRunner(TaskRunner):
         )
 
     async def _cleanup_gateway_credentials(self, reason: str) -> None:
-        await self._sandbox.runtime_cancel_runner(self._session_id)
-        await self._sandbox.runtime_clear_gateway(self._session_id)
+        try:
+            await self._sandbox.runtime_cancel_runner(self._session_id)
+        except Exception as exc:
+            logger.warning("Failed to cancel sandbox runner for session %s: %s", self._session_id, exc)
+
+        try:
+            await self._sandbox.runtime_clear_gateway(self._session_id)
+        except Exception as exc:
+            logger.warning("Failed to clear sandbox gateway credential for session %s: %s", self._session_id, exc)
+
         if self._gateway_token_id:
-            await self._gateway_client.revoke_token(self._gateway_token_id, reason=reason)
+            try:
+                await self._gateway_client.revoke_token(self._gateway_token_id, reason=reason)
+            except Exception as exc:
+                logger.warning("Failed to revoke gateway token for session %s: %s", self._session_id, exc)
+
+        try:
+            await self._sandbox.runtime_clear_runner(self._session_id)
+        except Exception as exc:
+            logger.warning("Failed to clear sandbox runner state for session %s: %s", self._session_id, exc)
+
         self._gateway_token = None
         self._gateway_token_id = None
         self._gateway_token_expire_at = None

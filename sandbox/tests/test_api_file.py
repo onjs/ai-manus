@@ -2,7 +2,7 @@ import pytest
 import tempfile
 import os
 from unittest.mock import patch, mock_open
-from conftest import BASE_URL
+from conftest import BASE_URL, INTERNAL_KEY
 import logging
 
 
@@ -20,6 +20,7 @@ def test_upload_file_success(client):
     # For file upload, create a new requests session without JSON headers
     import requests
     upload_client = requests.Session()
+    upload_client.headers.update({"X-Internal-Key": INTERNAL_KEY})
     
     response = upload_client.post(
         f"{BASE_URL}/api/v1/file/upload",

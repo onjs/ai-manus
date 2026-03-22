@@ -7,7 +7,7 @@ from pydantic_settings import SettingsConfigDict
 class Settings(BaseSettings):
     ORIGINS: List[str] = ["*"]
     SANDBOX_INTERNAL_API_KEY: Optional[str] = None
-    RUNTIME_DB_PATH: str = "/tmp/sandbox_runtime.db"
+    RUNTIME_GATEWAY_CREDENTIAL_DIR: str = "/tmp/manus_runtime/gateway"
     SEARCH_PROVIDER: str = "duckduckgo"
     BING_SEARCH_API_KEY: Optional[str] = None
     GOOGLE_SEARCH_API_KEY: Optional[str] = None

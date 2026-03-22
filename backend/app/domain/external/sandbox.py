@@ -323,3 +323,7 @@ class Sandbox(Protocol):
     async def runtime_cancel_runner(self, session_id: str) -> ToolResult:
         """Cancel sandbox-hosted runtime runner."""
         ...
+
+    async def runtime_clear_runner(self, session_id: str) -> ToolResult:
+        """Clear sandbox-hosted runtime runner state and buffered events."""
+        ...

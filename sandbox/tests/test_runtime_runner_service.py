@@ -1,73 +1,65 @@
+import asyncio
+
 import pytest
 
 from app.schemas.runtime_runner import RuntimeRunnerStartRequest
 from app.services.runtime_runner import RuntimeRunnerService
-from app.services.runtime_store import RuntimeStore
+from app.services.runtime_run_registry import RuntimeRunRegistry
 
 
 class FakeRuntimeService:
-    def __init__(self, store: RuntimeStore):
-        self._store = store
+    def __init__(self, has_config: bool = True):
+        self._has_config = has_config
 
     def has_gateway_config(self, session_id: str) -> bool:
-        return self._store.has_gateway_credential(session_id)
+        _ = session_id
+        return self._has_config
 
 
 @pytest.mark.asyncio
-async def test_runner_service_enqueues_start_cancel_clear(tmp_path):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime.db"))
-    runtime = FakeRuntimeService(store)
+async def test_runner_service_start_cancel_clear():
+    runtime = FakeRuntimeService(has_config=True)
     service = RuntimeRunnerService(runtime)
-    service._store = store  # use isolated db for this test
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
 
-    store.set_gateway_credential(
+    complete_signal = pytest.MonkeyPatch()
+    marker = {"done": False}
+
+    async def fake_run(**kwargs):
+        _ = kwargs
+        while not marker["done"]:
+            await asyncio.sleep(0.01)
+        yield "done", {}
+
+    complete_signal.setattr(service._runtime_agent, "run", fake_run, raising=True)  # noqa: SLF001
+
+    request = RuntimeRunnerStartRequest(
         session_id="s1",
-        gateway_base_url="http://gateway:8100",
-        gateway_token="token",
-        gateway_token_id="tid",
-        gateway_token_expire_at=9999999999,
-        scopes=["llm:stream"],
+        agent_id="a1",
+        user_id="u1",
+        sandbox_id="sbx1",
+        message="hello",
+        session_status="running",
     )
-
-    started = await service.start_run(
-        RuntimeRunnerStartRequest(
-            session_id="s1",
-            agent_id="a1",
-            user_id="u1",
-            sandbox_id="sbx1",
-            message="hello",
-        )
-    )
+    started = await service.start_run(request)
+    second = await service.start_run(request)
     assert started["started"] is True
-    run = store.get_run("s1")
-    assert run is not None
-    assert run["status"] == "starting"
+    assert second["started"] is False
 
-    pending = store.get_pending_commands(limit=10)
-    assert len(pending) == 1
-    assert pending[0]["command_type"] == "start"
-    store.mark_command_done(pending[0]["id"])
-
-    cancel = await service.cancel_run("s1")
-    assert cancel["cancelled"] is True
-    pending = store.get_pending_commands(limit=10)
-    assert len(pending) == 1
-    assert pending[0]["command_type"] == "cancel"
-    store.mark_command_done(pending[0]["id"])
+    cancelled = await service.cancel_run("s1")
+    assert cancelled["cancelled"] is True
 
     cleared = await service.clear_run("s1")
     assert cleared["cleared"] is True
-    pending = store.get_pending_commands(limit=10)
-    assert len(pending) == 1
-    assert pending[0]["command_type"] == "clear"
+
+    complete_signal.undo()
 
 
 @pytest.mark.asyncio
-async def test_runner_service_requires_gateway_config(tmp_path):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime.db"))
-    runtime = FakeRuntimeService(store)
+async def test_runner_service_requires_gateway_config():
+    runtime = FakeRuntimeService(has_config=False)
     service = RuntimeRunnerService(runtime)
-    service._store = store
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
 
     with pytest.raises(ValueError, match="not configured"):
         await service.start_run(
@@ -77,60 +69,29 @@ async def test_runner_service_requires_gateway_config(tmp_path):
                 user_id="u1",
                 sandbox_id="sbx1",
                 message="hello",
+                session_status="running",
             )
         )
 
 
 @pytest.mark.asyncio
-async def test_runner_service_start_is_idempotent_when_already_running(tmp_path):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime.db"))
-    runtime = FakeRuntimeService(store)
+async def test_runner_service_stream_events_resume_from_seq_without_duplicates():
+    runtime = FakeRuntimeService(has_config=True)
     service = RuntimeRunnerService(runtime)
-    service._store = store
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
+    registry = service._registry  # noqa: SLF001
 
-    store.set_gateway_credential(
-        session_id="s1",
-        gateway_base_url="http://gateway:8100",
-        gateway_token="token",
-        gateway_token_id="tid",
-        gateway_token_expire_at=9999999999,
-        scopes=["llm:stream"],
-    )
-
-    request = RuntimeRunnerStartRequest(
-        session_id="s1",
-        agent_id="a1",
-        user_id="u1",
-        sandbox_id="sbx1",
-        message="hello",
-    )
-    first = await service.start_run(request)
-    second = await service.start_run(request)
-
-    assert first["started"] is True
-    assert second["started"] is False
-    pending = store.get_pending_commands(limit=10)
-    assert len(pending) == 1
-    assert pending[0]["command_type"] == "start"
-
-
-@pytest.mark.asyncio
-async def test_runner_service_stream_events_resume_from_seq_without_duplicates(tmp_path):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime.db"))
-    runtime = FakeRuntimeService(store)
-    service = RuntimeRunnerService(runtime)
-    service._store = store
-
-    store.upsert_run(
+    await registry.upsert_run(
         session_id="s1",
         agent_id="a1",
         user_id="u1",
         status="completed",
         message="hello",
+        error=None,
         reset_events=True,
     )
-    store.append_event("s1", "message", {"role": "assistant", "message": "hello"})
-    store.append_event(
+    await registry.append_event("s1", "message", {"role": "assistant", "message": "hello"})
+    await registry.append_event(
         "s1",
         "tool",
         {
@@ -142,7 +103,7 @@ async def test_runner_service_stream_events_resume_from_seq_without_duplicates(t
             "function_result": None,
         },
     )
-    store.append_event("s1", "done", {})
+    await registry.append_event("s1", "done", {})
 
     first_connection = []
     async for event_name, data in service.stream_events("s1", from_seq=1, limit=1):
@@ -157,22 +118,23 @@ async def test_runner_service_stream_events_resume_from_seq_without_duplicates(t
 
 
 @pytest.mark.asyncio
-async def test_runner_service_stream_events_stops_on_waiting_status(tmp_path):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime_waiting.db"))
-    runtime = FakeRuntimeService(store)
+async def test_runner_service_stream_events_stops_on_waiting_status():
+    runtime = FakeRuntimeService(has_config=True)
     service = RuntimeRunnerService(runtime)
-    service._store = store
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
+    registry = service._registry  # noqa: SLF001
 
-    store.upsert_run(
+    await registry.upsert_run(
         session_id="s1",
         agent_id="a1",
         user_id="u1",
         status="waiting",
         message="hello",
+        error=None,
         reset_events=True,
     )
-    store.append_event("s1", "message", {"role": "assistant", "message": "请先登录后继续"})
-    store.append_event("s1", "wait", {"reason": "login_required"})
+    await registry.append_event("s1", "message", {"role": "assistant", "message": "请先登录后继续"})
+    await registry.append_event("s1", "wait", {"reason": "login_required"})
 
     out = []
     async for event_name, data in service.stream_events("s1", from_seq=1, limit=10):
@@ -183,18 +145,19 @@ async def test_runner_service_stream_events_stops_on_waiting_status(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_runner_service_cancel_noop_for_terminal_status(tmp_path):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime_terminal.db"))
-    runtime = FakeRuntimeService(store)
+async def test_runner_service_cancel_noop_for_terminal_status():
+    runtime = FakeRuntimeService(has_config=True)
     service = RuntimeRunnerService(runtime)
-    service._store = store
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
+    registry = service._registry  # noqa: SLF001
 
-    store.upsert_run(
+    await registry.upsert_run(
         session_id="s1",
         agent_id="a1",
         user_id="u1",
         status="completed",
         message="done",
+        error=None,
         reset_events=True,
     )
 
@@ -202,4 +165,40 @@ async def test_runner_service_cancel_noop_for_terminal_status(tmp_path):
     assert result["cancelled"] is False
     assert result["reason"] == "not_running"
     assert result["status"] == "completed"
-    assert store.get_pending_commands(limit=10) == []
+
+
+@pytest.mark.asyncio
+async def test_runner_service_executes_agent_stream_and_marks_completed():
+    runtime = FakeRuntimeService(has_config=True)
+    service = RuntimeRunnerService(runtime)
+    service._registry = RuntimeRunRegistry()  # noqa: SLF001
+
+    async def fake_run(**kwargs):
+        _ = kwargs
+        yield "message", {"role": "assistant", "message": "ok"}
+        yield "done", {}
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service._runtime_agent, "run", fake_run, raising=True)  # noqa: SLF001
+
+    await service.start_run(
+        RuntimeRunnerStartRequest(
+            session_id="s1",
+            agent_id="a1",
+            user_id="u1",
+            sandbox_id="sbx1",
+            message="hello",
+            session_status="running",
+        )
+    )
+
+    for _ in range(50):
+        status = await service.get_status("s1")
+        if status.get("status") == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    events = await service.get_events("s1", from_seq=1, limit=10)
+    assert [item["event"] for item in events["events"]] == ["message", "done"]
+    assert events["status"] == "completed"
+    monkeypatch.undo()

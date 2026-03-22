@@ -21,6 +21,14 @@ class _FakeSessionRepository:
         return None
 
 
+class _FakeFileStorage:
+    async def upload_file(self, file_stream, filename=None, content_type=None):  # noqa: ARG002
+        raise RuntimeError("not used in this test")
+
+    async def download_file(self, file_id):  # noqa: ARG002
+        raise RuntimeError("not used in this test")
+
+
 class _FakeGatewayClient:
     def __init__(self):
         self.base_url = "http://gateway:8100"
@@ -51,6 +59,9 @@ class _FakeSandbox:
         return ToolResult(success=True, data={"cleared": True})
 
     async def runtime_cancel_runner(self, session_id):
+        return ToolResult(success=True)
+
+    async def runtime_clear_runner(self, session_id):
         return ToolResult(success=True)
 
     async def runtime_start_runner(self, **kwargs):
@@ -94,10 +105,11 @@ async def test_gateway_tool_pipeline_search_event_maps_to_stable_sse_fields():
         user_id="u1",
         sandbox=sandbox,
         session_repository=_FakeSessionRepository(),
+        file_storage=_FakeFileStorage(),
         gateway_client=_FakeGatewayClient(),
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="running")]  # noqa: SLF001
     tool_event = next(e for e in out if isinstance(e, ToolEvent))
 
     sse_event = await EventMapper.event_to_sse_event(tool_event)
@@ -135,10 +147,11 @@ async def test_gateway_tool_pipeline_mcp_event_maps_to_stable_sse_fields():
         user_id="u1",
         sandbox=sandbox,
         session_repository=_FakeSessionRepository(),
+        file_storage=_FakeFileStorage(),
         gateway_client=_FakeGatewayClient(),
     )
 
-    out = [event async for event in runner._run_gateway_flow("test")]  # noqa: SLF001
+    out = [event async for event in runner._run_gateway_flow("test", session_status="running")]  # noqa: SLF001
     tool_event = next(e for e in out if isinstance(e, ToolEvent))
 
     sse_event = await EventMapper.event_to_sse_event(tool_event)

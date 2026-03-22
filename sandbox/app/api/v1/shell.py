@@ -1,13 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.schemas.shell import (
     ShellExecRequest, ShellViewRequest, ShellWaitRequest,
     ShellWriteToProcessRequest, ShellKillProcessRequest,
 )
+from app.api.deps.internal_auth import verify_runtime_internal_key
 from app.schemas.response import Response
 from app.services.shell import shell_service
 from app.core.exceptions import BadRequestException
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(verify_runtime_internal_key)])
 
 @router.post("/exec", response_model=Response)
 async def exec_command(request: ShellExecRequest):

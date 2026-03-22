@@ -70,10 +70,9 @@ services:
       context: ./sandbox
       dockerfile: Dockerfile
     hostname: sandbox
-    ports:
-      - "9222:9222"
-      - "5901:5901"
-      - "8080:8080"
+    expose:
+      - "5901"
+      - "8080"
     restart: unless-stopped
     networks:
       - manus-network

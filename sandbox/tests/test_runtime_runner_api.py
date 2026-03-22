@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -8,8 +9,9 @@ from app.api.v1.runtime_runner import router as runtime_runner_router
 from app.core.config import settings
 from app.schemas.runtime_runner import RuntimeRunnerStartRequest
 from app.services.runtime import runtime_service
+from app.services.runtime_credential_store import RuntimeCredentialStore
+from app.services.runtime_run_registry import RuntimeRunRegistry
 from app.services.runtime_runner import runtime_runner_service
-from app.services.runtime_store import RuntimeStore
 
 
 def _decode_sse_payload(data_lines: list[str]) -> dict:
@@ -45,12 +47,13 @@ async def _read_sse_events(response, max_events: int | None = None) -> list[tupl
 
 
 @pytest.fixture
-def isolated_runtime_store(tmp_path, monkeypatch):
-    store = RuntimeStore(db_path=str(tmp_path / "runtime_api.db"))
+def isolated_runtime_state(tmp_path, monkeypatch):
+    store = RuntimeCredentialStore(base_dir=str(tmp_path / "runtime_api"))
+    registry = RuntimeRunRegistry()
     monkeypatch.setattr(runtime_service, "_store", store, raising=False)
-    monkeypatch.setattr(runtime_runner_service, "_store", store, raising=False)
+    monkeypatch.setattr(runtime_runner_service, "_registry", registry, raising=False)
     monkeypatch.setattr(runtime_runner_service, "_gateway_runtime", runtime_service, raising=False)
-    return store
+    return store, registry
 
 
 @pytest.fixture
@@ -61,8 +64,19 @@ def runtime_runner_api_app():
 
 
 @pytest.mark.asyncio
-async def test_runtime_runner_start_is_idempotent_via_api(isolated_runtime_store, runtime_runner_api_app):
-    store = isolated_runtime_store
+async def test_runtime_runner_start_is_idempotent_via_api(isolated_runtime_state, runtime_runner_api_app):
+    store, _registry = isolated_runtime_state
+    keep_running = {"on": True}
+
+    async def fake_run(**kwargs):
+        _ = kwargs
+        while keep_running["on"]:
+            await asyncio.sleep(0.01)
+        yield "done", {}
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(runtime_runner_service._runtime_agent, "run", fake_run, raising=True)  # noqa: SLF001
+
     store.set_gateway_credential(
         session_id="s1",
         gateway_base_url="http://gateway:8100",
@@ -78,35 +92,36 @@ async def test_runtime_runner_start_is_idempotent_via_api(isolated_runtime_store
         user_id="u1",
         sandbox_id="sbx1",
         message="hello",
+        session_status="running",
     )
     headers = {"X-Internal-Key": settings.SANDBOX_INTERNAL_API_KEY, "Content-Type": "application/json"}
     transport = ASGITransport(app=runtime_runner_api_app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         first = await client.post("/api/v1/runtime/runs/start", headers=headers, json=request.model_dump())
         second = await client.post("/api/v1/runtime/runs/start", headers=headers, json=request.model_dump())
+        await client.post("/api/v1/runtime/runs/s1/cancel", headers=headers)
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["data"]["started"] is True
     assert second.json()["data"]["started"] is False
-    pending = store.get_pending_commands(limit=10)
-    assert len(pending) == 1
-    assert pending[0]["command_type"] == "start"
+    monkeypatch.undo()
 
 
 @pytest.mark.asyncio
-async def test_runtime_runner_stream_reconnect_from_seq_via_api(isolated_runtime_store, runtime_runner_api_app):
-    store = isolated_runtime_store
-    store.upsert_run(
+async def test_runtime_runner_stream_reconnect_from_seq_via_api(isolated_runtime_state, runtime_runner_api_app):
+    _store, registry = isolated_runtime_state
+    await registry.upsert_run(
         session_id="s1",
         agent_id="a1",
         user_id="u1",
         status="completed",
         message="hello",
+        error=None,
         reset_events=True,
     )
-    store.append_event("s1", "message", {"role": "assistant", "message": "hello"})
-    store.append_event(
+    await registry.append_event("s1", "message", {"role": "assistant", "message": "hello"})
+    await registry.append_event(
         "s1",
         "tool",
         {
@@ -118,7 +133,7 @@ async def test_runtime_runner_stream_reconnect_from_seq_via_api(isolated_runtime
             "function_result": None,
         },
     )
-    store.append_event("s1", "done", {})
+    await registry.append_event("s1", "done", {})
 
     headers = {"X-Internal-Key": settings.SANDBOX_INTERNAL_API_KEY}
     transport = ASGITransport(app=runtime_runner_api_app)
@@ -147,3 +162,25 @@ async def test_runtime_runner_stream_reconnect_from_seq_via_api(isolated_runtime
 
     assert first_seq == [1]
     assert resumed_seq == [2, 3]
+
+
+@pytest.mark.asyncio
+async def test_runtime_runner_rejects_invalid_session_id(runtime_runner_api_app):
+    headers = {"X-Internal-Key": settings.SANDBOX_INTERNAL_API_KEY, "Content-Type": "application/json"}
+    payload = {
+        "session_id": "../bad",
+        "agent_id": "a1",
+        "user_id": "u1",
+        "sandbox_id": "sbx1",
+        "message": "hello",
+        "attachments": [],
+        "session_status": "running",
+        "last_plan": None,
+    }
+
+    transport = ASGITransport(app=runtime_runner_api_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post("/api/v1/runtime/runs/start", headers=headers, json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid session_id format"

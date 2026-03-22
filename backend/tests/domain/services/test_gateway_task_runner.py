@@ -92,6 +92,7 @@ class FakeSandbox:
         self.configured = []
         self.cleared = []
         self.cancelled = []
+        self.runner_cleared = []
 
     async def runtime_configure_gateway(self, **kwargs):
         self.configured.append(kwargs)
@@ -103,6 +104,10 @@ class FakeSandbox:
 
     async def runtime_cancel_runner(self, session_id):
         self.cancelled.append(session_id)
+        return ToolResult(success=True)
+
+    async def runtime_clear_runner(self, session_id):
+        self.runner_cleared.append(session_id)
         return ToolResult(success=True)
 
     async def runtime_start_runner(self, **kwargs):
@@ -735,4 +740,3 @@ async def test_gateway_runner_sync_file_to_storage_adds_session_file():
     assert synced is not None
     assert synced.filename == "a.txt"
     assert len(repo._files) == 1
-
