@@ -102,7 +102,7 @@ services:
     env_file:
       - .env
     environment:
-      - UVI_ARGS="--reload"
+      - UVI_ARGS=
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - SANDBOX_INTERNAL_API_KEY=${SANDBOX_INTERNAL_API_KEY:?SANDBOX_INTERNAL_API_KEY is required}
     restart: unless-stopped
