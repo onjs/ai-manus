@@ -35,6 +35,9 @@ export function useToolInfo(tool?: Ref<ToolContent | undefined>) {
     }
     
     let functionArg = tool.value.args[TOOL_FUNCTION_ARG_MAP[tool.value.function]] || '';
+    if (tool.value.function === 'browser_wait') {
+      functionArg = '';
+    }
     if (TOOL_FUNCTION_ARG_MAP[tool.value.function] === 'file') {
       functionArg = functionArg.replace(/^\/home\/ubuntu\//, '');
     }
