@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     ORIGINS: List[str] = ["*"]
     SANDBOX_INTERNAL_API_KEY: Optional[str] = None
     RUNTIME_GATEWAY_CREDENTIAL_DIR: str = "/tmp/manus_runtime/gateway"
-    SEARCH_PROVIDER: str = "duckduckgo"
+    SEARCH_PROVIDER: str = "bing_web"
     BING_SEARCH_API_KEY: Optional[str] = None
     GOOGLE_SEARCH_API_KEY: Optional[str] = None
     GOOGLE_SEARCH_ENGINE_ID: Optional[str] = None

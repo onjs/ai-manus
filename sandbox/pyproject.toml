@@ -5,6 +5,7 @@ description = "Sandbox service for AI Manus"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 dependencies = [
+    "beautifulsoup4>=4.12.0",
     "email-validator>=2.3.0",
     "fastapi>=0.121.2",
     "pydantic>=2.12.4",
@@ -13,6 +14,7 @@ dependencies = [
     "uvicorn>=0.38.0",
     # Added for sandbox-side agent runtime (migrated from backend)
     "browser-use>=0.12.1",
+    "curl-cffi>=0.14.0",
     "httpx>=0.28.1",
     "langchain>=1.0.7",
     "langchain-anthropic>=1.2.0",
