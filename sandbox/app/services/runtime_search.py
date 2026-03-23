@@ -16,7 +16,11 @@ class RuntimeSearchService:
     async def search_web(self, query: str, date_range: str | None = None) -> dict[str, Any]:
         q = (query or "").strip()
         if not q:
-            return {"success": False, "message": "query is required", "data": {}}
+            return {
+                "success": False,
+                "message": "query is required",
+                "data": {"query": q, "date_range": date_range, "total_results": 0, "results": []},
+            }
 
         try:
             if self._provider in {"tavily"} and self._tavily_api_key:
@@ -30,7 +34,7 @@ class RuntimeSearchService:
             return {
                 "success": False,
                 "message": str(e),
-                "data": {"query": q, "date_range": date_range},
+                "data": {"query": q, "date_range": date_range, "total_results": 0, "results": []},
             }
 
     async def _search_tavily(self, query: str) -> dict[str, Any]:
@@ -161,4 +165,3 @@ class RuntimeSearchService:
 
 
 runtime_search_service = RuntimeSearchService()
-
