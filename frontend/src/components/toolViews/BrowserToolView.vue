@@ -20,7 +20,13 @@
             @disconnected="onVNCDisconnected"
             @credentials-required="onVNCCredentialsRequired"
           />
-          <img v-else-if="imageUrl" alt="Image Preview" class="cursor-pointer w-full" referrerpolicy="no-referrer" :src="imageUrl">
+          <img
+            v-else-if="imageUrl"
+            alt="Image Preview"
+            class="cursor-pointer w-full h-full object-fill"
+            referrerpolicy="no-referrer"
+            :src="imageUrl"
+          >
         </div>
         <button
           v-if="!isShare"
