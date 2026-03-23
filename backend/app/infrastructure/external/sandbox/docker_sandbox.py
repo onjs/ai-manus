@@ -18,7 +18,13 @@ logger = logging.getLogger(__name__)
 class DockerSandbox(Sandbox):
     def __init__(self, ip: str = None, container_name: str = None):
         """Initialize Docker sandbox and API interaction client"""
-        self.client = httpx.AsyncClient(timeout=600)
+        # Use non-keepalive client to avoid stale pooled sockets causing intermittent
+        # httpx.ReadError on high-frequency file/shell polling against sandbox API.
+        self.client = httpx.AsyncClient(
+            timeout=600,
+            limits=httpx.Limits(max_connections=200, max_keepalive_connections=0),
+            headers={"Connection": "close"},
+        )
         self.ip = ip
         self.base_url = f"http://{self.ip}:8080"
         self._vnc_url = f"ws://{self.ip}:5901"
