@@ -200,6 +200,22 @@ class RuntimeAgentService:
 
     @classmethod
     def _map_event(cls, event: AgentEvent) -> tuple[str, dict[str, Any]]:
+        if isinstance(event, ToolEvent) and event.tool_name == "browser":
+            # Browser tool result may contain very large page payloads.
+            # Keep stream payload compact/stable for backend SSE bridge.
+            function_result = event.function_result
+            compact_result: dict[str, Any] | None = None
+            if isinstance(function_result, dict):
+                data = function_result.get("data")
+                compact_result = {
+                    "success": bool(function_result.get("success", True)),
+                    "message": str(function_result.get("message") or ""),
+                    "data": {
+                        "url": data.get("url") if isinstance(data, dict) else None,
+                        "title": data.get("title") if isinstance(data, dict) else None,
+                    },
+                }
+            event = event.model_copy(update={"function_result": compact_result})
         payload = event.model_dump(mode="json")
         payload["type"] = event.type
         return event.type, payload

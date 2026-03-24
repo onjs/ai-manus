@@ -178,12 +178,12 @@ class AgentDomainService:
                 await self._session_repository.add_event(session_id, message_event)
                 
                 await task.run()
-                logger.debug(f"Put message into Session {session_id}'s event queue: {message[:50]}...")
+                logger.debug("Put message into Session %s input queue", session_id)
             elif task:
                 cursor_event_id = await self._resolve_stream_start_id(task, cursor_event_id, has_new_message=False)
             
             logger.info(f"Session {session_id} started")
-            logger.debug(f"Session {session_id} task: {task}")
+            logger.debug("Session %s task: %s", session_id, task)
            
             while task:
                 event_id, event_str = await task.output_stream.get(start_id=cursor_event_id, block_ms=200)
@@ -195,7 +195,7 @@ class AgentDomainService:
                     continue
                 event = TypeAdapter(AgentEvent).validate_json(event_str)
                 event.id = event_id
-                logger.debug(f"Got event from Session {session_id}'s event queue: {type(event).__name__}")
+                logger.debug("Got event from Session %s output queue: %s", session_id, type(event).__name__)
                 await self._session_repository.update_unread_message_count(session_id, 0)
                 if replay_request_id:
                     replay_events.append(event.model_dump(mode="json"))

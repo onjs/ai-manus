@@ -145,9 +145,9 @@ async def chat(
             request_id=request.request_id,
             attachments=request.attachments
         ):
-            logger.debug(f"Received event from chat: {event}")
+            logger.debug("Received event from chat: %s", event.type)
             sse_event = await EventMapper.event_to_sse_event(event)
-            logger.debug(f"Received event: {sse_event}")
+            logger.debug("Mapped SSE event: %s", getattr(sse_event, "event", None))
             if sse_event:
                 yield ServerSentEvent(
                     event=sse_event.event,

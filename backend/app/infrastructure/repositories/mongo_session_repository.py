@@ -1,5 +1,6 @@
 from typing import Optional, List
 from datetime import datetime, UTC
+from pydantic import BaseModel
 from app.domain.models.session import Session, SessionStatus
 from app.domain.models.file import FileInfo
 from app.domain.repositories.session_repository import SessionRepository
@@ -8,6 +9,24 @@ from app.infrastructure.models.documents import SessionDocument
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class SessionSummaryProjection(BaseModel):
+    session_id: str
+    user_id: str
+    sandbox_id: Optional[str] = None
+    gateway_token_id: Optional[str] = None
+    gateway_token_expire_at: Optional[int] = None
+    agent_id: str
+    task_id: Optional[str] = None
+    title: Optional[str] = None
+    unread_message_count: int = 0
+    latest_message: Optional[str] = None
+    latest_message_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    status: SessionStatus
+    is_shared: Optional[bool] = False
 
 class MongoSessionRepository(SessionRepository):
     """MongoDB implementation of SessionRepository"""
@@ -39,8 +58,29 @@ class MongoSessionRepository(SessionRepository):
         """Find all sessions for a specific user"""
         mongo_sessions = await SessionDocument.find(
             SessionDocument.user_id == user_id
-        ).sort("-latest_message_at").to_list()
-        return [mongo_session.to_domain() for mongo_session in mongo_sessions]
+        ).project(SessionSummaryProjection).sort("-latest_message_at").to_list()
+        return [
+            Session(
+                id=mongo_session.session_id,
+                user_id=mongo_session.user_id,
+                sandbox_id=mongo_session.sandbox_id,
+                gateway_token_id=mongo_session.gateway_token_id,
+                gateway_token_expire_at=mongo_session.gateway_token_expire_at,
+                agent_id=mongo_session.agent_id,
+                task_id=mongo_session.task_id,
+                title=mongo_session.title,
+                unread_message_count=mongo_session.unread_message_count,
+                latest_message=mongo_session.latest_message,
+                latest_message_at=mongo_session.latest_message_at,
+                created_at=mongo_session.created_at,
+                updated_at=mongo_session.updated_at,
+                status=mongo_session.status,
+                is_shared=bool(mongo_session.is_shared),
+                events=[],
+                files=[],
+            )
+            for mongo_session in mongo_sessions
+        ]
     
     async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Optional[Session]:
         """Find a session by ID and user ID (for authorization)"""
@@ -176,4 +216,3 @@ class MongoSessionRepository(SessionRepository):
         )
         if not result:
             raise ValueError(f"Session {session_id} not found")
-

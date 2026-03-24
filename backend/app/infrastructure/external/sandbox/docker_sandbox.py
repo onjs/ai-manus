@@ -539,7 +539,7 @@ class DockerSandbox(Sandbox):
             data_lines: list[str] = []
 
             async for raw_line in response.aiter_lines():
-                line = raw_line.strip()
+                line = raw_line.rstrip("\r")
                 if not line:
                     if not event_name and not data_lines:
                         continue
@@ -559,14 +559,20 @@ class DockerSandbox(Sandbox):
                     event_name = line[len("event:") :].strip()
                     continue
                 if line.startswith("data:"):
-                    data_lines.append(line[len("data:") :].strip())
+                    data = line[len("data:") :]
+                    if data.startswith(" "):
+                        data = data[1:]
+                    data_lines.append(data)
 
+            # Ignore trailing partial frame when stream closes unexpectedly.
+            # SSE producer always emits frames ending with a blank line ("\n\n"),
+            # so a remaining buffered frame at EOF is incomplete/corrupted.
             if event_name or data_lines:
-                if not event_name:
-                    raise RuntimeError("Sandbox runner stream missing event name")
-                yield GatewayStreamEvent(
-                    event=event_name,
-                    data=self._parse_sse_data(data_lines),
+                logger.warning(
+                    "Discarding trailing partial sandbox SSE frame for session %s: event=%s lines=%d",
+                    session_id,
+                    event_name,
+                    len(data_lines),
                 )
 
     async def runtime_cancel_runner(self, session_id: str) -> ToolResult:
